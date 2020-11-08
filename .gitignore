@@ -1,0 +1,24 @@
+# Data things
+*.ASCII
+*.msgpack
+*.npy
+*.npz
+*.fits
+*.xml
+*.md5
+*.fil
+*beam*.csv
+*.hdr
+*sample.zip
+*.dat
+*.tar.xz
+
+.ipynb_checkpoints/
+*#
+__pycache__
+*~
+*.swp
+*.p
+*.p.*
+
+data/*/*.txt
