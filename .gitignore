@@ -12,6 +12,7 @@
 *sample.zip
 *.dat
 *.tar.xz
+*.pkl
 
 .ipynb_checkpoints/
 *#
@@ -22,3 +23,4 @@ __pycache__
 *.p.*
 
 data/*/*.txt
+dfdtresults/
