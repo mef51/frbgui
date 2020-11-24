@@ -35,3 +35,11 @@ nov 18
 	* CHIME Detection  : 332.7206 +/- 0.0009
 	* STARE2 Detection : 332.702(8)
 	* VLBI Detection   : 332.7206
+
+nov 19
+===
+* loaded stare2 bursts.
+
+nov 23
+===
+* VLBI bursts still have positive drift at STARE2 DM

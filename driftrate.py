@@ -7,6 +7,11 @@ def findCenter(burstwindow):
 	freqi = np.indices(freqspectrum.shape)[0]
 	return np.nansum(freqi*freqspectrum) / np.nansum(freqspectrum)
 
+def subband(wfall, nsub):
+	nchan, nsamp = wfall.shape
+	sub_factor = nchan // nsub
+	return np.nanmean(wfall.reshape(-1, sub_factor, nsamp), axis=1)
+
 def moments(data):
 	"""Returns (height, x, y, width_x, width_y)
 	the gaussian parameters of a 2D distribution by calculating its
@@ -38,7 +43,8 @@ def fitgaussiannlsq(data, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
 	x, y = np.meshgrid(x, y)
 	p0 = moments(data) if p0 == [] else p0
 	sigma = np.zeros(len(data.ravel())) + sigma
-	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma, absolute_sigma=True, bounds=bounds)
+	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
+										  absolute_sigma=True, bounds=bounds)
 	return popt, pcov
 
 def _dedisperse(wfall, dm, freq, dt):
@@ -77,22 +83,22 @@ def _dedisperse(wfall, dm, freq, dt):
 
 	return dedisp
 
-def dedisperse(intensity, DM, nu_low, chan_width, timestep, cshift=0):
+def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0):
 	dedispersed = np.copy(intensity)
 
 	shifts = [0 for i in range(0, len(intensity))]
-	high_ref_freq = nu_low + len(dedispersed)*chan_width
+	high_ref_freq = nu_low + len(dedispersed)*df_mhz
 	low_ref_freq  = nu_low
 
 	for i, row in enumerate(dedispersed): # i == 0 corresponds to bottom of the band
-		nu_i = nu_low + i*chan_width
+		nu_i = nu_low + i*df_mhz
 		# High frequency anchor
 		deltat = -4.14937759336e6 * (nu_i**-2 - high_ref_freq**-2) * DM
 
 		# Low frequency anchor
 		#deltat = 4.14937759336e6 * (low_ref_freq**-2 - nu_i**-2) * DM
 
-		channelshift = int(round(deltat/timestep))
+		channelshift = int(round(deltat/dt_ms))
 		dedispersed[i] = np.roll(dedispersed[i], channelshift)
 
 	# optionally center view
@@ -134,9 +140,11 @@ def autocorr2d(data):
 
 	return temp_array_b[:-1,:-1]#/float(nx*ny)
 
-def processBurst(burstwindow, burstkey, fres_MHz, tres_ms, lowest_freq, p0=[], popt_custom=[], bounds=(-np.inf, np.inf), nclip=None, clip=None):
+def processBurst(burstwindow, burstkey, fres_MHz, tres_ms, lowest_freq, p0=[], popt_custom=[],
+				 bounds=(-np.inf, np.inf), nclip=None, clip=None):
 	"""
-	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to find the drift and make a plot of the burst and fit.
+	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
+	find the drift and make a plot of the burst and fit.
 	returns drift, drift_error, popt, perr, theta,	red_chisq, center_f
 	"""
 
@@ -154,8 +162,8 @@ def processBurst(burstwindow, burstkey, fres_MHz, tres_ms, lowest_freq, p0=[], p
 		popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
 		perr = np.sqrt(np.diag(pcov))
 		print('solution nlsq:', popt)
-		print('parameter 1sigma:', perr)
-		#print('pcov diag:', np.diag(pcov))
+		# print('parameter 1sigma:', perr)
+		# print('pcov diag:', np.diag(pcov))
 	except (RuntimeError, ValueError):
 		print('no fit found')
 		popt, perr = [-1,-1,-1,-1,-1,-1], [-1,-1,-1,-1,-1,-1]
@@ -175,7 +183,7 @@ def processBurst(burstwindow, burstkey, fres_MHz, tres_ms, lowest_freq, p0=[], p
 	slope = np.tan(theta)
 	conversion = fres_MHz / (tres_ms)
 	drift = conversion * slope # MHz/ms
-	theta_err = perr[-1] # do i need to correct this for pixel scale?
+	theta_err = perr[-1]
 	drift_error = conversion * (theta_err * (1/np.cos(theta))**2)
 
 	# find center frequency
@@ -194,7 +202,8 @@ def processBurst(burstwindow, burstkey, fres_MHz, tres_ms, lowest_freq, p0=[], p
 		center_f
 	)
 
-def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res, lowest_freq, ploti=None):
+def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,
+				lowest_freq, ploti=None):
 	fontsize = 22
 	cmap = plt.get_cmap('gray')
 	cmap.set_bad(color = 'w', alpha = 1.)
@@ -217,7 +226,7 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 	else:
 		plt.subplot(nrows, 2, next(ploti))
 	plt.title("Burst #{}".format(burstkey), fontsize=fontsize)
-	plt.imshow(burstwindow, aspect=aspect, cmap=cmap, extent=extents, origin='lower') # white is 0, black is 1
+	plt.imshow(burstwindow, aspect=aspect, cmap=cmap, extent=extents, origin='lower')
 	# plt.axhline(y=center_f, c='k', ls='--', lw=3)
 	plt.xlabel("Time (ms)")
 	plt.ylabel("Frequency (MHz)")
@@ -233,6 +242,6 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 	plt.clim(0, np.max(corr)/20)
 
 	if popt[0] > 0:
-		print("plotting", popt)
-		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
+		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents,
+					origin='lower')
 
