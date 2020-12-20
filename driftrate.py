@@ -12,6 +12,11 @@ def subband(wfall, nsub):
 	sub_factor = nchan // nsub
 	return np.nanmean(wfall.reshape(-1, sub_factor, nsamp), axis=1)
 
+def subsample(m, nfreq, ntime):
+	""" m : 2x2 array """
+	n = np.nanmean(m.reshape(-1, m.shape[0]//nfreq, m.shape[1]), axis=1)
+	return np.nanmean(n.reshape(n.shape[0], -1, n.shape[1]//ntime), axis=2)
+
 def moments(data):
 	"""Returns (height, x, y, width_x, width_y)
 	the gaussian parameters of a 2D distribution by calculating its
@@ -89,11 +94,12 @@ def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0):
 	shifts = [0 for i in range(0, len(intensity))]
 	high_ref_freq = nu_low + len(dedispersed)*df_mhz
 	low_ref_freq  = nu_low
-
+	#k_dm = 4.1488064239e6 # kulkarni
+	k_dm = 4.14937759336e6 # pulsar community
 	for i, row in enumerate(dedispersed): # i == 0 corresponds to bottom of the band
 		nu_i = nu_low + i*df_mhz
 		# High frequency anchor
-		deltat = -4.14937759336e6 * (nu_i**-2 - high_ref_freq**-2) * DM
+		deltat = - k_dm * (nu_i**-2 - high_ref_freq**-2) * DM
 
 		# Low frequency anchor
 		#deltat = 4.14937759336e6 * (low_ref_freq**-2 - nu_i**-2) * DM
@@ -219,14 +225,13 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 
 	nrows = 7
 	aspect = 'auto'
-	# aspect = 'auto'
 	if ploti == None:
 		plt.figure(figsize=(15, 12))
 		plt.subplot(121)
 	else:
 		plt.subplot(nrows, 2, next(ploti))
 	plt.title("Burst #{}".format(burstkey), fontsize=fontsize)
-	plt.imshow(burstwindow, aspect=aspect, cmap=cmap, extent=extents, origin='lower')
+	plt.imshow(burstwindow, interpolation='none', aspect=aspect, cmap=cmap, extent=extents, origin='lower')
 	# plt.axhline(y=center_f, c='k', ls='--', lw=3)
 	plt.xlabel("Time (ms)")
 	plt.ylabel("Frequency (MHz)")
@@ -236,7 +241,7 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 	else:
 		plt.subplot(nrows, 2, next(ploti))
 	plt.title("Correlation #{}".format(burstkey), fontsize=fontsize)
-	plt.imshow(corr, aspect=aspect, cmap='gray', extent=corrextents, origin='lower')
+	plt.imshow(corr, interpolation='none', aspect=aspect, cmap='gray', extent=corrextents, origin='lower')
 	plt.xlabel("Time Shift (ms)")
 	plt.ylabel("Frequency Shift (MHz)")
 	plt.clim(0, np.max(corr)/20)
