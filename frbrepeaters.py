@@ -13,11 +13,12 @@ import matplotlib.pyplot as plt
 import pypulse, your
 import driftrate, driftlaw
 
-def loadpsrfits(filename):
+def loadpsrfits(filename, subsample=None):
 	stored = filename.split('.')[0]+'.npy'
 	try:
 		subfall = np.load(stored)
 	except FileNotFoundError:
+		print("fresh data load")
 		ar = pypulse.Archive(filename, prepare=True)
 		wfall = ar.getData()
 		try:

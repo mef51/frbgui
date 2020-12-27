@@ -95,3 +95,11 @@ dec 16
 dec 18
 ===
 * omg I just discovered DearPyGui and it is glorious. better than the other python wrappers for Dear Imgui
+
+dec 21
+===
+* dearpygui's heat series can display dynamic spectra from the data directly.
+
+dec 25
+===
+* two columns in one window is unwieldy. Do one window for the plots and another window for analysis
