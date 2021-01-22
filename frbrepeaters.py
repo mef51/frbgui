@@ -13,26 +13,37 @@ import matplotlib.pyplot as plt
 import pypulse, your
 import driftrate, driftlaw
 
-def loadpsrfits(filename, subsample=None):
-	stored = filename.split('.')[0]+'.npy'
+def loadpsrfits(filename):
+	ar = pypulse.Archive(filename, prepare=True)
+	print('loaded')
+	wfall, subfall = ar.getData(), None
 	try:
-		subfall = np.load(stored)
-	except FileNotFoundError:
-		print("fresh data load")
-		ar = pypulse.Archive(filename, prepare=True)
-		wfall = ar.getData()
-		try:
-			subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//8)
-		except ValueError:
-			subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//2)
-		np.save(stored, subfall)
+		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//8)
+	except ValueError:
+		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//2)
+
+	sstored = filename.split('.')[0]+'_sub'+'.npy'
+	stored = filename.split('.')[0]+'.npy'
+	# np.save(sstored, subfall)
+	# np.save(stored, wfall)
 
 	ts = np.nanmean(subfall, axis=0)
 	pkidx = np.nanargmax(ts)
 	# ar.getTbin(), ar.getTimeUnit()
-
-	return subfall, pkidx
+	print("done loading")
+	return subfall, pkidx, wfall
 
 if __name__ == '__main__':
-	loadpsrfits('data/oostrum2020/R1_frb121102/R1_B01.rf')
+	filename = 'data/oostrum2020/R1_frb121102/R1_B07.rf'
+	# subfall, pkidx, wfall = loadpsrfits(filename)
+	subfall = np.load(filename.split('.')[0]+'_sub.npy')
+	wfall   = np.load(filename.split('.')[0]+'.npy')
+	pkidx   = np.nanargmax(np.nanmean(subfall, axis=0))
 
+	ts  = np.nanmean(wfall, axis=0)
+	snr = np.max(ts)/np.std(ts)
+
+	test_sub = driftrate.subsample(wfall, 32, wfall.shape[1]//12)
+	print(wfall.shape, test_sub.shape)
+	# plt.imshow(subfall, origin='lower', aspect='auto')
+	# plt.show()

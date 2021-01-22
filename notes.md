@@ -103,3 +103,16 @@ dec 21
 dec 25
 ===
 * two columns in one window is unwieldy. Do one window for the plots and another window for analysis
+* dpg's async utility is too slow, opened (https://github.com/hoffstadt/DearPyGui/issues/407)
+
+jan 4
+===
+* hypothesis: the closer to 1.4ghz (or whatever nu_0 is) an FRB is the smaller the bandwidth of the burst since the source is less relativistic
+* subsample fails on dimensions that are a third of the original? (if not evenly divisible)
+	* `len(a.flatten()) == dim1*dim2*dim3`
+	* `dim3 == len(a)/(dim1*dim2)` and dim3 must be an int
+	* i dunno how to handle this, I'm just gonna handle the error by forcibly incrementing the dimension by one which will handle all the cases that matter since the point is just to increase the snr in the dynamic spectrum
+
+jan 20
+===
+* what happened to the background in 4 and 11?
