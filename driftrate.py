@@ -174,7 +174,9 @@ def autocorr2d(data):
 	return temp_array_b[:-1,:-1]#/float(nx*ny)
 
 def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
-				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False):
+				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
+				 sigmawindow=(0,50),
+				 verbose=True):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
 	find the drift and make a plot of the burst and fit.
@@ -186,18 +188,20 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	if nclip != None or clip != None:
 		corr = np.clip(corr, nclip, clip)
 
-	#### Autocorr noise TODO: generalize sample window
-	autocorr_sigma = np.std( corr[:, 0:50] )
+	#### Autocorr noise
+	autocorr_sigma = np.std( corr[:, sigmawindow[0]:sigmawindow[1]] )
 
 	#### Fit Gaussian to autocorrelation.
 	try:
-		popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
-		perr = np.sqrt(np.diag(pcov))
-		print('solution nlsq:', popt)
-		# print('parameter 1sigma:', perr)
-		# print('pcov diag:', np.diag(pcov))
+		if popt_custom != []:
+			popt, perr = popt_custom, [-1,-1,-1,-1,-1,-1]
+		else:
+			popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
+			perr = np.sqrt(np.diag(pcov))
+
+		if verbose: print('fit parameters:', popt)
 	except (RuntimeError, ValueError):
-		print('no fit found')
+		if verbose: print('no fit found')
 		popt, perr = [-1,-1,-1,-1,-1,-1], [-1,-1,-1,-1,-1,-1]
 		if popt_custom != []:
 			popt = popt_custom
