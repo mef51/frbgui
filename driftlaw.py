@@ -12,6 +12,7 @@ def computeModelDetails(frame):
 	frame['drift_abs'] = -1*(frame['drift (mhz/ms)'])
 	frame['drift_over_nuobs'] = frame[['drift_abs','center_f']].apply(lambda row: row['drift_abs'] / row['center_f'], axis=1)
 	frame['recip_drift_over_nuobs'] = 1/frame['drift_over_nuobs']
+	frame['drift_abs_nuobssq'] = frame['drift_abs']/frame['center_f']**2/1000 # unitless
 	frame['min_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: min(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
 	frame['max_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: max(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
 	# the following two lines assume that if sigmax > sigmay, then sigmax_error > sigmay_error, which is true (so far) for this dataset
@@ -117,7 +118,7 @@ def rangeerror(frame):
 	errors.
 	"""
 	ex = [np.array([frame['tau_w_ms'] - frame['tw_min'], frame['tw_max'] - frame['tau_w_ms']])]
-	ey = [np.array([frame['drift_over_nuobs'] - frame['drift_min'], frame['drift_max'] - frame['drift_over_nuobs']])]
+	ey = [np.array([frame['drift_over_nuobs'] - frame['drift_nu_min'], frame['drift_nu_max'] - frame['drift_over_nuobs']])]
 	return ex, ey
 
 def log_error(frame):
@@ -127,9 +128,12 @@ def log_error(frame):
 	return sx, sy
 
 def rangelog_error(frame):
-	""" The range errors are asymmetric. Take the largest error """
+	""" The range errors are asymmetric. Average the error """
 	ex, ey = rangeerror(frame)
-	return np.log(np.maximum(ex[0][0], ex[0][1])), np.log(np.maximum(ey[0][0], ey[0][1]))
+	ex = np.log((frame['tau_w_ms'] + (ex[0][0]+ex[0][1])/2 ) / frame['tau_w_ms'])
+	ey = np.log((frame['drift_over_nuobs'] + (ey[0][0]+ey[0][1])/2) / frame['drift_over_nuobs'])
+	return ey, ey
+	# return np.log(np.maximum(ex[0][0], ex[0][1])), np.log(np.maximum(ey[0][0], ey[0][1]))
 
 def rangeerror_odr(frame):
 	""" The range errors are asymmetric. Take the largest error """
@@ -178,8 +182,10 @@ def driftranges(source):
 		dmax, dmin = np.max(burstdf[yaxis] + edriftnuobs), np.min(burstdf[yaxis] - edriftnuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
 
-		source.loc[burst, 'drift_max'] = dmax
-		source.loc[burst, 'drift_min'] = dmin
+		source.loc[burst, 'drift_nu_max'] = dmax
+		source.loc[burst, 'drift_nu_min'] = dmin
+		source.loc[burst, 'drift_max'] = dmax*burstdf['center_f']
+		source.loc[burst, 'drift_min'] = dmin*burstdf['center_f']
 		source.loc[burst, 'tw_max']    = tmax
 		source.loc[burst, 'tw_min']    = tmin
 
@@ -189,8 +195,8 @@ def driftranges(source):
 
 def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
 						markers=['o', 'p', 'X', 'd', 's'],
-						fitlines=['r-', 'b--', 'g-.'], fitextents=None, hidefit=None,
-						errorfunc=modelerror):
+						fitlines=['r-', 'b--', 'g-.'], fitextents=None, hidefit=[],
+						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False):
 	""" wip """
 	plt.rcParams["errorbar.capsize"] = 4
 	plt.rcParams["font.family"] = "serif"
@@ -204,7 +210,7 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	# figsize = (14, 10)
 
 	yaxis = 'drift_over_nuobs'
-	yaxis_lbl = 'Sub-burst Drift Rate $\\,(1/\\nu_{\\mathrm{obs}}) \\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|$ (ms$^{-1}$)'
+	yaxis_lbl = 'Sub-burst Drift Rate $\\,\\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|(1/\\nu_{\\mathrm{obs}})$ (ms$^{-1}$)'
 	# yaxis = 'recip_drift_over_nuobs'
 	# yaxis_lbl = 'nu_obs / drift'
 
@@ -243,25 +249,40 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 
 	logfit = True
 	if type(hidefit) == int:
-		hidefit =[hidefit]
+		hidefit = [hidefit]
 
 	fits = []
 	for fi, (frame, label, line) in enumerate(zip(frames, labels, fitlines)):
 		x = np.linspace(fitextents[0], fitextents[1], num=1200)
 		if logfit:
-			fit = fitodr(frame, errorfunc=rangelog_error)
+			fit = fitodr(frame, errorfunc=fiterrorfunc)
 			param, err = np.exp(fit.beta[0]), np.exp(fit.beta[0])*(np.exp(fit.sd_beta[0])-1)
 		else:
 			fit = fitodr(frame, log=logfit)
 			param, err = fit.beta[0], fit.sd_beta[0]
-		fits.append([label, param, err])
+
+		## compute reduced chisq
+		# parameter error
+		ex = frame['tau_w_error']*np.sqrt(frame['red_chisq'])
+		ey = frame['drift error (mhz/ms)']/frame['center_f']*np.sqrt(frame['red_chisq'])
+		data_err = np.sqrt(ex**2 + ey**2)
+		residuals = frame['drift_over_nuobs'] - param/frame['tau_w_ms']
+		chisq = np.sum((residuals / data_err) ** 2)
+		red_chisq = chisq / (len(frame) - 1)
+		# print(residuals)
+		fits.append([label, param, err, red_chisq, residuals, len(frame)])
 
 		lstr = '{} fit ({:.3f} $\\pm$ {:.3f}) $t_w^{{-1}}$'.format(label, param, err)
-		if hidefit and fi not in hidefit:
+		if fi not in hidefit:
 			plt.plot(x, param/x, line, label=lstr)
 
 	if title:
 		ax.set_title(title, size=fontsize)
+
+	if dmtrace:
+		sorteddata = pd.concat([frames[dmi] for dmi in np.argsort(labels)])
+		for bid in sorteddata.index.unique():
+			plt.plot(sorteddata.loc[bid]['tau_w_ms'], sorteddata.loc[bid]['drift_over_nuobs'])
 
 	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
 	ax.set_ylabel(yaxis_lbl, size=fontsize)
