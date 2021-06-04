@@ -194,8 +194,8 @@ def driftranges(source):
 	return source
 
 def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
-						markers=['o', 'p', 'X', 'd', 's'],
-						fitlines=['r-', 'b--', 'g-.'], fitextents=None, hidefit=[],
+						markers=['o', 'p', 'X', 'd', 's'], hidefit=[], hidefitlabel=False,
+						fitlines=['r-', 'b--', 'g-.'], fitextents=None,
 						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False):
 	""" wip """
 	plt.rcParams["errorbar.capsize"] = 4
@@ -210,7 +210,7 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	# figsize = (14, 10)
 
 	yaxis = 'drift_over_nuobs'
-	yaxis_lbl = 'Sub-burst Drift Rate $\\,\\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|(1/\\nu_{\\mathrm{obs}})$ (ms$^{-1}$)'
+	yaxis_lbl = 'Sub-burst Slope $\\,\\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|(1/\\nu_{\\mathrm{obs}})$ (ms$^{-1}$)'
 	# yaxis = 'recip_drift_over_nuobs'
 	# yaxis_lbl = 'nu_obs / drift'
 
@@ -272,7 +272,9 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		# print(residuals)
 		fits.append([label, param, err, red_chisq, residuals, len(frame)])
 
-		lstr = '{} fit ({:.3f} $\\pm$ {:.3f}) $t_w^{{-1}}$'.format(label, param, err)
+		lstr = ''
+		if not hidefitlabel:
+			lstr = '{} fit ({:.3f} $\\pm$ {:.3f}) $t_w^{{-1}}$'.format(label, param, err)
 		if fi not in hidefit:
 			plt.plot(x, param/x, line, label=lstr)
 
@@ -286,8 +288,8 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 
 	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
 	ax.set_ylabel(yaxis_lbl, size=fontsize)
-	# plt.legend(fontsize='xx-large')
-	plt.legend()
+	plt.legend(fontsize='xx-large')
+	# plt.legend()
 	plt.tight_layout()
 
 	return ax, fits

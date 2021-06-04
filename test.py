@@ -27,4 +27,5 @@ with window("async test"):
 	add_button("test sync", callback=slow_callback)
 
 show_debug()
+# show_demo()
 start_dearpygui()

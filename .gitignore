@@ -26,6 +26,7 @@ __pycache__
 *.swp
 *.p
 *.p.*
+*.egg-info*
 
 data/*/*.txt
 dfdtresults/

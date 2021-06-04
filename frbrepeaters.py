@@ -22,7 +22,7 @@ def loadpsrfits(filename):
 	except ValueError:
 		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//2)
 
-	sstored = filename.split('.')[0]+'_sub'+'.npy'
+	sstored = filename.split('.')[0]+'_sub.npy'
 	stored = filename.split('.')[0]+'.npy'
 	# np.save(sstored, subfall)
 	# np.save(stored, wfall)

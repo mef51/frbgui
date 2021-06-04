@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.optimize
+import itertools, glob
 
 def findCenter(burstwindow):
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
@@ -240,9 +241,60 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		fitmap
 	)
 
-def plotStampcard():
-	""" TODO: generalize the code that plots marthi's bursts from ReadDataSandbox.ipynb """
-	pass
+def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4, twidth=150):
+	"""
+	Plot bursts and their autocorrelations in a stampcard
+	Optionally do the processing to find the slope and plot the resulting fit as well
+
+	loadfunc: a function(filename) that loads the waterfall and returns (subfall, pkidx, wfall)
+		where `wfall` is the loaded waterfall,
+		`subfall` is the subbanded waterfall that you want to see,
+		and `pkidx` is the index in the timeseries of the data with peak intensity
+		See `frbprepeaters.loadpsrfits` for an example
+	"""
+	numfiles = len(glob.glob(fileglob))
+	if nrows*ncols != 2*numfiles: # ensure there is enough room for the subplots
+		nrows = (2*numfiles // ncols) + 1
+
+	plt.figure(figsize=figsize)
+	ploti = itertools.count(start=1, step=1)
+	burstnum = 1
+
+	for filename in glob.glob(fileglob):
+		# print(f'loading {filename}')
+		# Handle 2 different types of loadfuncs:
+		loadresult = loadfunc(filename)
+		if type(loadresult) == tuple and len(loadresult) == 3:
+			# eg. loadfunc = frbrepeaters.loadpsrfits. User controls downsampling and
+			subfall, pkidx, wfall = loadresult
+		else: # eg. loadfunc = np.load
+			wfall = loadresult
+			subfall = subsample(wfall, 32, wfall.shape[1]//8)
+			pkidx = np.nanargmax(np.nanmean(subfall, axis=0))
+
+		view = subfall[..., pkidx-twidth:pkidx+twidth]
+		corr = autocorr2d(view)
+		print(f'type: {type(view)}\tshape: {view.shape}, type: {type(corr)}\tshape: {corr.shape}')
+		#drift, drift_error, popt, perr, theta, red_chisq, center_f, fitmap = processBurst(view, bwidth/nfreq, dt*tfac, lowest_freq, verbose=False)
+		# extents, corrextents = getExtents(view, df=bwidth/nfreq, dt=dt*tfac, lowest_freq=lowest_freq)
+
+		plt.subplot(nrows, ncols, next(ploti))
+		plt.imshow(view, origin='lower', interpolation='none', aspect='auto')#, extent=extents)
+		plt.title(f'Burst #{burstnum}')
+		plt.xlabel('time (arb)'), plt.ylabel('freq (arb)')
+
+		plt.subplot(nrows, ncols, next(ploti))
+		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray'),#extent=corrextents)
+		plt.clim(0, np.max(corr)/20)
+		plt.title(f'Corr #{burstnum}')
+		plt.xlabel('time lag (arb)'), plt.ylabel('freq lag (arb)')
+		# if popt[0] > 0:
+		# 	plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
+
+		burstnum += 1
+
+	plt.tight_layout()
+	plt.show()
 
 def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,
 				lowest_freq, ploti=None):
