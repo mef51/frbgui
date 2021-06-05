@@ -14,9 +14,14 @@ import numpy as np
 # plt.imshow(subfall[:, pkidx-width:pkidx+width], origin='lower',interpolation='none', aspect='auto')
 # plt.show()
 # dpg.show_demo()
-datastore = {}
+
 # dpg.show_debug()
 dpg.show_logger()
+
+# App state is stored here. Defaults initialized here
+datastore = {
+	'globfilter': '*'
+}
 
 def log_cb(sender, data):
 	dpg.log_debug(f"{sender}, {data}")
@@ -50,26 +55,43 @@ def subsample_cb(sender, data):
 
 def directory_cb(sender, data):
 	dpg.set_value('Dirtext', 'Selected: {}'.format(data[0]))
-	files = glob.glob(data[0]+'/*')
+	dpg.configure_item('Filter', enabled=True)
+	dpg.configure_item('Clear filter', enabled=True)
+	files = glob.glob(data[0]+'/{}'.format(datastore['globfilter']))
 	dpg.configure_item('burstselect', items=[os.path.basename(x) for x in files])
 	datastore['datadir'] = data[0]
 	datastore['files']   = files
 	log_cb(sender, data[0])
+
+def filter_cb(sender, data):
+	globfilter = dpg.get_value('Filter')
+	if globfilter == '':
+		globfilter = '*'
+	datastore['globfilter'] = globfilter
+	directory_cb(sender, [datastore['datadir']])
+
+def clearfilter_cb(s, d):
+	dpg.set_value('Filter', '')
+	filter_cb(s, d)
 
 def burstselect_cb(sender, data):
 	fileidx = dpg.get_value('burstselect')
 	loaddata_cb(sender, fileidx)
 	log_cb(sender, 'Opening file {}'.format(datastore['files'][fileidx]))
 
-with dpg.window("frb plots", width=570, height=480, x_pos=100, y_pos=50):
+with dpg.window("frb plots", width=570, height=480, x_pos=900, y_pos=50):
 	dpg.add_plot("Plot", no_legend=True)
 	dpg.set_color_map("Plot", 5) # Viridis
 
-with dpg.window('frb analysis', width=560, height=600, x_pos=900, y_pos=50):
+with dpg.window('frb analysis', width=560, height=600, x_pos=100, y_pos=50):
 	with dpg.collapsing_header("1. Data", default_open=True):
 		dpg.add_button("Select Directory...", callback = lambda s, d: dpg.select_directory_dialog(directory_cb))
-		dpg.add_same_line()
-		dpg.add_text("Dirtext", default_value="Selected: ")
+		dpg.add_text("Dirtext", default_value="Selected: (no directory selected)")
+		dpg.add_text("Filter:"); dpg.add_same_line()
+		dpg.add_input_text("Filter", label='', hint="eg. *.npy", callback=filter_cb, enabled=False)
+		dpg.add_same_line();
+		dpg.add_button('Clear filter', callback=clearfilter_cb, enabled=False)
+
 		dpg.add_text("Files found:")
 		dpg.add_listbox("burstselect", label='', items=[], num_items=10, width=520,
 						callback=burstselect_cb, tip="Select to load burst...")
