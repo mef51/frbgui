@@ -141,3 +141,14 @@ papers:
 	* just keep a burst in memory while figuring it out
 	* subtractbg streaks the luo et al data
 	* add burst selection and data loading into gui
+
+## june 6
+* add very basic clickmasking via a click callback
+	* handle crashes
+	* handle view changing
+	* list masked channels
+	* clicking same channel should remove mask
+	* masks should be index by burst, so reset the mask if the burst changes
+* this is going nowhere i still can't see some of these bursts
+* dpg table data shape is transpose of dictionary shape
+	* set_table_data is useless. massaging sparse 2d arrays for it is painful. add columns and their data one by one
