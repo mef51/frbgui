@@ -51,13 +51,15 @@ def loaddata_cb(sender, fileidx):
 
 	plotdata_cb(sender, None)
 
-def plotdata_cb(sender, scale):
-	print('in plotdata')
+def plotdata_cb(sender, data):
+	if not data:
+		data = {'scale': None, 'keepview': False}
+
 	wfall, pkidx = gdata['wfall'], gdata['pkidx']
 	width = 150
 	wfall = wfall[..., pkidx-150:pkidx+150]
 	# subfall = driftrate.subsample(wfall, 128, wfall.shape[1]//4)
-	print('zeroing channels for ', gdata['currfile'], gdata['masks'][gdata['currfile']])
+	# print('zeroing channels for ', gdata['currfile'], gdata['masks'][gdata['currfile']])
 	for mask in gdata['masks'][gdata['currfile']]:
 		wfall[mask] = 0
 
@@ -66,17 +68,26 @@ def plotdata_cb(sender, scale):
 	dpg.configure_item('wfallscale', enabled=True, min_value=mostmin, max_value=mostmax,
 						format='%.{}f'.format(getscale(mostmin, mostmax)+1))
 
-	if scale != None:
-		smin, smax = scale
+	if 'scale' in data.keys() and data['scale'] != None:
+		smin, smax = data['scale']
 	else:
 		smin, smax = mostmin, mostmax
 	dpg.set_value('wfallscale', [smin, smax])
+
+	if 'keepview' in data.keys() and data['keepview']:
+		wx, wy = dpg.get_plot_xlimits('WaterfallPlot'), dpg.get_plot_ylimits('WaterfallPlot')
 
 	dpg.add_heat_series("WaterfallPlot", "Waterfall",
 		values=list(np.flipud(wfall).flatten()),
 		rows=wfall.shape[0], columns=wfall.shape[1],
 		scale_min=smin, scale_max=smax,
 		bounds_min=(0,0), bounds_max=(wfall.shape[1], wfall.shape[0]), format='')
+
+	if 'keepview' in data.keys() and data['keepview']:
+		dpg.set_plot_xlimits('WaterfallPlot', wx[0], wx[1])
+		dpg.set_plot_ylimits('WaterfallPlot', wy[0], wy[1])
+		dpg.set_plot_xlimits_auto('WaterfallPlot')
+		dpg.set_plot_ylimits_auto('WaterfallPlot')
 
 def subsample_cb(sender, data):
 	df, dt = dpg.get_value("num freq"), dpg.get_value("num time")
@@ -121,7 +132,7 @@ def mousepos_cb(sender, data):
 	if isOnWaterfall:
 		tchan, fchan = dpg.get_plot_mouse_pos()
 		gdata['masks'][gdata['currfile']].append(round(fchan)-1)
-		plotdata_cb(sender, None)
+		plotdata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
 		log_cb('mousepos_cb ', [[tchan, fchan], isOnWaterfall])
 	else:
@@ -153,8 +164,8 @@ with dpg.window('FRB Analysis', width=560, height=600, x_pos=100, y_pos=50):
 ### Plotting window
 with dpg.window("FRB Plots", width=570, height=480, x_pos=900, y_pos=50):
 	dpg.set_mouse_click_callback(mousepos_cb)
-	dpg.add_slider_float2("wfallscale", enabled=False, callback=plotdata_cb,
-		callback_data=lambda: dpg.get_value('wfallscale'))
+	dpg.add_slider_float2("wfallscale", label='Wfall Min/Max', enabled=False, callback=plotdata_cb,
+		callback_data=lambda: {'scale': dpg.get_value('wfallscale')})
 	dpg.add_plot("WaterfallPlot", no_legend=True)
 	dpg.set_color_map("WaterfallPlot", 5) # Viridis
 
