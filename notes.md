@@ -152,3 +152,16 @@ papers:
 * this is going nowhere i still can't see some of these bursts
 * dpg table data shape is transpose of dictionary shape
 	* set_table_data is useless. massaging sparse 2d arrays for it is painful. add columns and their data one by one
+
+## june 9
+* burst 3 was just hidden due to low snr in the time axis
+* double click to reset view isn't working anymore
+	>> happens because subsampling changes bounds but plot still has same bounds
+* interface assumes masking happens before subsampling, which is best for retaining as much data as possible, but not necessary.
+TODO:
+	* find a better subsampling algorithm
+	* add a way to remove mask
+	* add a way to mask after subsampling
+	* add time series
+	* add autocorrelation
+	* just analyse the luo data manually and then go back to gui

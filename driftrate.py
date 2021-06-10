@@ -266,15 +266,16 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 		loadresult = loadfunc(filename)
 		if type(loadresult) == tuple and len(loadresult) == 3:
 			# eg. loadfunc = frbrepeaters.loadpsrfits. User controls downsampling and
-			subfall, pkidx, wfall = loadresult
+			subfall, pkidx, _ = loadresult
 		else: # eg. loadfunc = np.load
 			wfall = loadresult
 			subfall = subsample(wfall, 32, wfall.shape[1]//8)
 			pkidx = np.nanargmax(np.nanmean(subfall, axis=0))
 
+		twidth = min(twidth, pkidx)-1
 		view = subfall[..., pkidx-twidth:pkidx+twidth]
 		corr = autocorr2d(view)
-		print(f'type: {type(view)}\tshape: {view.shape}, type: {type(corr)}\tshape: {corr.shape}')
+		print(f'shape: {view.shape}, \tshape: {corr.shape}')
 		#drift, drift_error, popt, perr, theta, red_chisq, center_f, fitmap = processBurst(view, bwidth/nfreq, dt*tfac, lowest_freq, verbose=False)
 		# extents, corrextents = getExtents(view, df=bwidth/nfreq, dt=dt*tfac, lowest_freq=lowest_freq)
 
