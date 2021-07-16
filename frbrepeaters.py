@@ -17,6 +17,19 @@ def loadpsrfits(filename):
 	ar = pypulse.Archive(filename, prepare=True)
 	print('loaded')
 	wfall, subfall = ar.getData(), None
+	burstmetadata = {
+		'dt'        : ar.getTimes(),
+		'dfs'       : ar.getFreqs(),
+		'DM'        : ar.getDM(),
+		'bandwidth' : ar.getBandwidth(),
+		'duration'  : ar.getDuration(),
+		'center_f'  : ar.getCenterFrequency(),
+		'freq_unit' : ar.getFrequencyUnit(),
+		'time_unit' : ar.getTimeUnit(),
+		'int_unit'  : ar.getIntensityUnit(),
+		'telescope' : ar.getTelescope(),
+		'burstSN'   : ar.getSN(),
+	}
 	try:
 		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//8)
 	except ValueError:
@@ -31,11 +44,11 @@ def loadpsrfits(filename):
 	pkidx = np.nanargmax(ts)
 	# ar.getTbin(), ar.getTimeUnit()
 	print("done loading")
-	return subfall, pkidx, wfall
+	return subfall, pkidx, wfall, burstmetadata
 
 if __name__ == '__main__':
 	filename = 'data/oostrum2020/R1_frb121102/R1_B07.rf'
-	# subfall, pkidx, wfall = loadpsrfits(filename)
+	# subfall, pkidx, wfall, burstmetadata = loadpsrfits(filename)
 	subfall = np.load(filename.split('.')[0]+'_sub.npy')
 	wfall   = np.load(filename.split('.')[0]+'.npy')
 	pkidx   = np.nanargmax(np.nanmean(subfall, axis=0))

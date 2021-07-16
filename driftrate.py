@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.optimize
 import itertools, glob
+import pandas as pd
+from tqdm import tqdm
 
 def findCenter(burstwindow):
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
@@ -138,6 +140,7 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
 			   lowest_freq + df*wfall.shape[0])
 
 	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2])*2, (extents[3]-extents[2])*2)
+	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
 	return extents, corrextents
 
 def autocorr2d(data):
@@ -215,7 +218,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	chisq = np.sum((residuals / autocorr_sigma) ** 2)
 	red_chisq = chisq / (corr.shape[0]*corr.shape[1] - len(popt)) # this is chisq/(M-N)
 
-	# Calculate drifit
+	# Calculate slope
 	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2
 	slope = np.tan(theta)
 	conversion = fres_MHz / (tres_ms)
@@ -241,6 +244,52 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		fitmap
 	)
 
+# make result headers global
+columns = [
+	'name',
+	'DM',
+	'center_f',
+	'slope (mhz/ms)',
+	'slope error (mhz/ms)',
+	'theta',
+	'red_chisq',
+	'amplitude',
+	'xo',
+	'yo',
+	'sigmax',
+	'sigmay',
+	'angle',
+	'amp_error',
+	'xo_error',
+	'yo_error',
+	'sigmax_error',
+	'sigmay_error',
+	'angle_error',
+	'f_res (mhz)',
+	'time_res'
+]
+
+def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq):
+	results = []
+	view = np.copy(wfall)
+	for trialDM in tqdm(dmrange):
+		ddm = trialDM - burstdm
+		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms) # TODO: check units
+
+		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False)
+		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
+
+		datarow = np.concatenate(([burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]))
+		results.append(datarow)
+
+	df = exportresults(results)
+	return results, df
+
+def exportresults(results):
+	df = pd.DataFrame(results, columns=columns)
+	df.set_index('name')
+	return df
+
 def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4, twidth=150):
 	"""
 	Plot bursts and their autocorrelations in a stampcard
@@ -259,14 +308,21 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 	plt.figure(figsize=figsize)
 	ploti = itertools.count(start=1, step=1)
 	burstnum = 1
+	obsdata = None
 
 	for filename in glob.glob(fileglob):
 		# print(f'loading {filename}')
 		# Handle 2 different types of loadfuncs:
 		loadresult = loadfunc(filename)
-		if type(loadresult) == tuple and len(loadresult) == 3:
-			# eg. loadfunc = frbrepeaters.loadpsrfits. User controls downsampling and
-			subfall, pkidx, _ = loadresult
+		if type(loadresult) == tuple and len(loadresult) == 4:
+			# eg. loadfunc = frbrepeaters.loadpsrfits
+			subfall, pkidx, wfall, obsdata = loadresult
+			downf, downt = wfall.shape[0] / subfall.shape[0], wfall.shape[1] / subfall.shape[1]
+
+			df = (obsdata['dfs'][-1] - obsdata['dfs'][0])/len(obsdata['dfs']) * downf  # mhz
+			dt = obsdata['dt'][0] / wfall.shape[1]  * downt # s
+			dt = dt*1000          # ms
+			lowest_freq = obsdata['dfs'][0] # mhz
 		else: # eg. loadfunc = np.load
 			wfall = loadresult
 			subfall = subsample(wfall, 32, wfall.shape[1]//8)
@@ -276,21 +332,24 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 		view = subfall[..., pkidx-twidth:pkidx+twidth]
 		corr = autocorr2d(view)
 		print(f'shape: {view.shape}, \tshape: {corr.shape}')
-		#drift, drift_error, popt, perr, theta, red_chisq, center_f, fitmap = processBurst(view, bwidth/nfreq, dt*tfac, lowest_freq, verbose=False)
-		# extents, corrextents = getExtents(view, df=bwidth/nfreq, dt=dt*tfac, lowest_freq=lowest_freq)
+		if obsdata:
+			drift, drift_error, popt, perr, theta, red_chisq, center_f, fitmap = processBurst(view, df, dt, lowest_freq, verbose=False)
+			extents, corrextents = getExtents(view, df=df, dt=dt, lowest_freq=lowest_freq)
+		else:
+			extents, corrextents = None, None
 
 		plt.subplot(nrows, ncols, next(ploti))
-		plt.imshow(view, origin='lower', interpolation='none', aspect='auto')#, extent=extents)
+		plt.imshow(view, origin='lower', interpolation='none', aspect='auto', extent=extents)
 		plt.title(f'Burst #{burstnum}')
 		plt.xlabel('time (arb)'), plt.ylabel('freq (arb)')
 
 		plt.subplot(nrows, ncols, next(ploti))
-		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray'),#extent=corrextents)
+		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray', extent=corrextents)
 		plt.clim(0, np.max(corr)/20)
 		plt.title(f'Corr #{burstnum}')
 		plt.xlabel('time lag (arb)'), plt.ylabel('freq lag (arb)')
-		# if popt[0] > 0:
-		# 	plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
+		if obsdata and popt[0] > 0:
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
 
 		burstnum += 1
 

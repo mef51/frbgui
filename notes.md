@@ -165,3 +165,32 @@ TODO:
 	* add time series
 	* add autocorrelation
 	* just analyse the luo data manually and then go back to gui
+* keeping the view when masking seems to break because of set_plot_xlimits_auto
+
+## june 12
+* based on the breadcrumbs found in the paper and the data files they provide, the time resolution is either 49.152us or twice that
+	* the number returned from the fits file using .getTimes() is the full duration in the units returned by .getTimeUnit()
+		* ie. 0.70464307 seconds over 28672 samples = 24.576 us, which is half the time resolution from the paper. Not sure how it could be half but its one of those two numbers. Pick one and see if it lines up with their figures
+* added burst metadata to load, will use savez to store subsampled waterfalls with metadata
+
+## june 14
+* lol i think my corr extents are wrong and have been wrong for two papers
+	* why did i have a factor of 2??
+* not sure i can do contour plots easily in DPG, will plot lines that represent the semi-major and -minor axes
+* adding bounds breaks masking
+	>> its because i use physical units on the axes instead of channel nums
+
+## june 15
+meeting notes:
+	* consider removing the one frb121102 fit that only uses the one burst at the high DM, this will fix the range
+	* fix the correlation extents in the figures that are affected. Old figures are unnaffected
+
+## july 12
+* DM range for FRB180301: 516.3 - 525.5 (there's a lower DM but its on a tiny scrap of FRB so whatever)
+
+## july 14
+* played with aggarwal et al.'s burstfit package. might use it for noise primarly and burst modelling. autocorr of model will always be cleaner
+
+## july 15
+* 'keepview' feature is very bugged
+* can produce results csv over DM range now. need to be able to specify a p0 tho, and still no visual way to evaluate fits over the range (just the fit at the burstdm atm)
