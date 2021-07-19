@@ -194,3 +194,13 @@ meeting notes:
 ## july 15
 * 'keepview' feature is very bugged
 * can produce results csv over DM range now. need to be able to specify a p0 tho, and still no visual way to evaluate fits over the range (just the fit at the burstdm atm)
+
+## july 18
+* dpg.get_value produces rounding errors. for e.g. burst dm is 518.3, but becomes 518.2999877 after dpg.get_value
+* implemented buttons for switching DM of displayed burst
+* results seem repeated? also left dm select button
+	* yikes was passing the wrong waterfall to processDMRange. need to pass the wfall at the burstdm, as processDMRange will dedisperse to each trial DM
+* scipy.curve_fit is getting completely stuck?? >> was passing huge waterfall instead of windowed waterfall
+
+## july 19
+*

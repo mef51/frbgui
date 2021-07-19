@@ -27,7 +27,8 @@ gdata = {
 	'results'        : []
 }
 
-def getscale(m, M):
+def getscale(m, M=-1): # used for dynamically rounding numbers for display
+	if M == -1: M = m
 	ret = 1
 	c = abs((m+M)/2)
 	while c < 1:
@@ -42,6 +43,7 @@ def applyMasks(wfall):
 
 def makeburstname(filename):
 	return filename[-12:]
+
 
 def log_cb(sender, data):
 	dpg.log_debug(f"{sender}, {data}")
@@ -80,15 +82,17 @@ def loaddata_cb(sender, data):
 						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
 
 			# initialize DM range elements
+			gdata['displayedDM'] = loaded['DM']
+			gdata['burstDM'] = loaded['DM']
+			dpg.set_value('dmdisplayed', str(gdata['displayedDM']))
 			if dpg.get_value('dmrange')[0] == 0:
-				dmrange = [dpg.get_value('DM')*0.99, dpg.get_value('DM')*1.01]
+				dmrange = [gdata['burstDM']*0.99, gdata['burstDM']*1.01]
 				dpg.set_value('dmrange', dmrange)
 				dpg.configure_item('dmrange', speed=0.1)
 				dmrange_cb(sender, None)
 
-		gdata['wfall']          = wfall
-		# cache the original waterfall, since subsample needs it
-		gdata['wfall_original'] = np.copy(wfall)
+		gdata['wfall']          = wfall          # wfall at burstdm
+		gdata['wfall_original'] = np.copy(wfall) # wfall at burstdm without additional subsampling
 
 		# update subsample controls
 		dpg.set_value('Wfallshapelbl', 'Maximum Size: {}'.format(np.shape(wfall)))
@@ -97,7 +101,7 @@ def loaddata_cb(sender, data):
 		dpg.configure_item('dtimeinput', enabled=True, min_value=0, max_value=wfall.shape[1])
 		dpg.set_value('dfreqinput', wfall.shape[0])
 		dpg.set_value('dtimeinput', wfall.shape[1])
-	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb'
+	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
 	else:
@@ -109,37 +113,39 @@ def loaddata_cb(sender, data):
 	if wfall.shape == gdata['wfall_original'].shape:
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 
-	gdata['wfall']   = wfall
-	gdata['ts']      = np.nanmean(wfall, axis=0)
-	pkidx = np.nanargmax(gdata['ts'])
-	gdata['pkidx']   = pkidx
+	gdata['wfall'] = wfall
+	# gdata['ts']    = np.nanmean(wfall, axis=0) # time series at burstDM
+	# gdata['pkidx'] = np.nanargmax(gdata['ts']) # pkidx at burstDM, for displaying across DMs
 
 	plotdata_cb(sender, data)
+
+def cropwfall(wfall, twidth=150, pkidx=None):
+	wfall = wfall.copy()
+	ts    = np.nanmean(wfall, axis=0)
+	if not pkidx:
+		pkidx = np.nanargmax(ts)
+	return wfall[..., pkidx-twidth:pkidx+twidth]
 
 def plotdata_cb(sender, data):
 	if not data:
 		data = {}
 
-	wfall, pkidx = gdata['wfall'], gdata['pkidx']
-	twidth = 150
-	wfall = wfall[..., pkidx-twidth:pkidx+twidth]
-	gdata['view'] = wfall
-
-	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
+	wfall       = gdata['wfall']
+	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
-	extents, correxts = driftrate.getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
+
+	ddm = gdata['displayedDM'] - gdata['burstDM']
+	wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
+	wfall_dd_cr = cropwfall(wfall_dd)
+	tseries = np.nanmean(wfall_dd_cr, axis=0)
+
+	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
 
-	# print('zeroing channels for ', gdata['currfile'], gdata['masks'][gdata['currfile']])
-	# wfall = applyMasks(wfall)
-	# for mask in gdata['masks'][gdata['currfile']]:
-	# 	if mask < len(wfall):
-	# 		wfall[mask] = 0
-
-	corr = driftrate.autocorr2d(wfall)
+	corr = driftrate.autocorr2d(wfall_dd_cr)
 
 	## enable scale sliders
-	mostmin, mostmax = np.min(wfall), np.max(wfall)
+	mostmin, mostmax = np.min(wfall_dd_cr), np.max(wfall_dd_cr)
 	dpg.configure_item('wfallscale', enabled=True, min_value=mostmin, max_value=mostmax,
 						format='%.{}f'.format(getscale(mostmin, mostmax)+1))
 	mmincorr, mmaxcorr = np.min(corr), np.max(corr)
@@ -161,10 +167,10 @@ def plotdata_cb(sender, data):
 	wx, wy = dpg.get_plot_xlimits('WaterfallPlot'), dpg.get_plot_ylimits('WaterfallPlot')
 
 	dpg.add_heat_series("WaterfallPlot", "Waterfall",
-		values=list(np.flipud(wfall).flatten()),
-		rows=wfall.shape[0], columns=wfall.shape[1],
+		values=list(np.flipud(wfall_dd_cr).flatten()),
+		rows=wfall_dd_cr.shape[0], columns=wfall_dd_cr.shape[1],
 		scale_min=smin, scale_max=smax,
-		bounds_min=(0,0), bounds_max=(wfall.shape[1], wfall.shape[0]), format='')
+		bounds_min=(0,0), bounds_max=(wfall_dd_cr.shape[1], wfall_dd_cr.shape[0]), format='')
 		# bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
 
 	dpg.set_plot_xlimits_auto('WaterfallPlot')
@@ -183,10 +189,7 @@ def plotdata_cb(sender, data):
 		# bounds_min=(0,0), bounds_max=(corr.shape[1], corr.shape[0]), format='')
 		bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3]), format='')
 
-	tseries = gdata['ts'][pkidx-twidth:pkidx+twidth]
-	dpg.add_line_series("TimeSeriesPlot", "TimeSeries",
-						list(range(0, len(tseries))), tseries)
-
+	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", list(range(0, len(tseries))), tseries)
 
 def subsample_cb(sender, data):
 	df, dt = dpg.get_value("dfreqinput"), dpg.get_value("dtimeinput")
@@ -286,7 +289,7 @@ def mousepos_cb(sender, data):
 def dmrange_cb(sender, data):
 	dmrange   = dpg.get_value('dmrange')
 	numtrials = dpg.get_value('numtrials')
-	burstDM = dpg.get_value('DM')
+	burstDM = gdata['burstDM']
 	if dmrange[1] < dmrange[0]:
 		dmrange.sort()
 		dpg.set_value('dmrange', dmrange)
@@ -303,15 +306,21 @@ def slope_cb(sender, data):
 	burstname = dpg.get_value('burstname').replace(',', '')
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
-	view = np.copy(gdata['view'])
-	burstDM = dpg.get_value('DM')
-	gdata['results'] += driftrate.processDMRange(burstname, view, burstDM, gdata['trialDMs'], df, dt, lowest_freq)[0]
+	wfall = gdata['wfall'].copy()
+	wfall_cr = cropwfall(wfall)
+	burstDM = gdata['burstDM']
+
+	result, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, gdata['trialDMs'], df, dt, lowest_freq)
+	gdata['results'] += result
+	burstdf = driftrate.exportresults(result).loc[burstdf.index.unique()[0]] # TODO: Replace [0] with currently selected file
+	gdata['burstdf'] = burstdf
 
 	# TODO: remove
-	measurement = driftrate.processBurst(view, df, dt, lowest_freq, verbose=False)
+	measurement = driftrate.processBurst(wfall_cr, df, dt, lowest_freq, verbose=False)
 	slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
+	dpg.set_value('NumMeasurementsText', "# of Measurements: {}".format(len(burstdf)))
 	dpg.set_value('slope', slope)
 	dpg.configure_item('slope', format='%.{}f'.format(getscale(slope, slope)+2))
 	dpg.set_value('slope_err', slope_err)
@@ -319,7 +328,14 @@ def slope_cb(sender, data):
 	dpg.set_value('center_f_derived', center_f)
 	dpg.configure_item('center_f_derived', format='%.{}f'.format(getscale(center_f, center_f)+2))
 
+	dpg.configure_item('PrevDM', enabled=True)
+	dpg.configure_item('NextDM', enabled=True)
+	dpg.configure_item('ExportResultsBtn', enabled=True)
+
+	drawcorrfitline(slope)
 	# bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3])
+
+def drawcorrfitline(slope):
 	x = np.array(gdata['correxts'][:2])
 	dpg.add_line_series('Corr2dPlot', 'semimajor', x, slope*x, color=[0,0,1,-1], update_bounds=False)
 	if slope != 0:
@@ -335,6 +351,28 @@ def exportresults_cb(sender, data):
 	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
 	dpg.configure_item('ExportResultText', show=True)
 
+def displaydm_cb(sender, data):
+	dmlist = list(gdata['trialDMs'])
+	dmidx = dmlist.index(gdata['displayedDM'])
+
+	if sender == 'NextDM':
+		newidx = dmidx + 1
+		if not (newidx < len(dmlist)):
+			newidx = 0
+	elif sender == 'PrevDM':
+		newidx = dmidx - 1
+	gdata['displayedDM'] = dmlist[newidx]
+	dpg.set_value('dmdisplayed', str(round(gdata['displayedDM'], getscale(gdata['displayedDM']))))
+
+	plotdata_cb(sender, data)
+	df = gdata['burstdf'].set_index('DM')
+	df = df.set_index(df.index.astype('float')) # index type changes for some reason
+	slope = float(df.loc[gdata['displayedDM']]['slope (mhz/ms)'])
+	drawcorrfitline(slope)
+
+def helpmarker(message):
+	dpg.add_same_line()
+	dpg.add_text("(?)", color=[150, 150, 150], tip=message)
 
 ### Analysis window
 with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
@@ -369,11 +407,11 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
 			color=[255, 0, 0], show=False)
 		dpg.add_drag_float2('dmrange', label='DM range (pc/cm^3)', callback=dmrange_cb,
-			tip='double click to edit',
 			min_value=0, max_value=0)
+		helpmarker('Double click to edit')
 		dpg.add_input_int('numtrials', label='# of Trial DMs', default_value=10, callback=dmrange_cb)
 
-	with dpg.collapsing_header("2. Burst Cleanup", default_open=True):
+	with dpg.collapsing_header("2. Burst Cleanup", default_open=False):
 		with dpg.tree_node('Masking', default_open=True):
 			dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
 			dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
@@ -393,16 +431,27 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 			dpg.add_same_line()
 			dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
 
-	with dpg.collapsing_header("3. Sub-burst Slope Measurement", default_open=True):
+	with dpg.collapsing_header("3. Sub-burst Slope Measurements", default_open=True):
 		dpg.add_button("Measure Slope", callback=slope_cb)
-
+		dpg.add_same_line()
 		dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
+		dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
+		dpg.add_button('ExportResultsBtn', label="Export Results", callback=exportresults_cb, enabled=False)
+		dpg.add_text('ExportResultText', default_value='', show=False)
+
+		dpg.add_text('NumMeasurementsText', default_value="# of Measurements: (none)")
+		with dpg.group("DMselector", horizontal=True):
+			dpg.add_text("DM Displayed (pc/cm^3): ")
+			dpg.add_text("dmdisplayed", default_value=str(dpg.get_value('DM')))
+			dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
+				callback=displaydm_cb)
+			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
+				callback=displaydm_cb)
+
 		dpg.add_input_float('slope',     label='Sub-burst Slope')
 		dpg.add_input_float('slope_err', label='Sub-burst Slope Error')
 		dpg.add_input_float('center_f_derived',  label='Center Frequency (averaged)')
-		dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBUnknown")
-		dpg.add_button("Export Results", callback=exportresults_cb)
-		dpg.add_text('ExportResultText', default_value='', show=False)
+
 
 
 ### Plotting window
@@ -466,5 +515,8 @@ directory_cb('user', [gdata['datadir']]) # default directory
 burstselect_cb('burstselect', None)
 importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
 
+# dm range 516.3 - 525.5
+dpg.set_value('dmrange', [516.3, 525.5])
+dmrange_cb('user', None)
 
 dpg.start_dearpygui(primary_window='main')

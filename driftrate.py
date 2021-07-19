@@ -287,7 +287,7 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 
 def exportresults(results):
 	df = pd.DataFrame(results, columns=columns)
-	df.set_index('name')
+	df = df.set_index('name')
 	return df
 
 def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4, twidth=150):
