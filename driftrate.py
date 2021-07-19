@@ -271,10 +271,10 @@ columns = [
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq):
 	results = []
-	view = np.copy(wfall)
 	for trialDM in tqdm(dmrange):
+		view = np.copy(wfall)
 		ddm = trialDM - burstdm
-		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms) # TODO: check units
+		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
 
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
