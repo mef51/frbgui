@@ -28,7 +28,8 @@ gdata = {
 	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\luo2020\\180813_ar_file\\ar_file\\converted',
 	'results'        : [], # avoid using, might remove in favor of resultsdf
 	'resultsdf'      : None,
-	'popt'           : None # currently displayed 2d fit
+	'popt'           : None, # currently displayed 2d fit
+	'p0'             : None # currently displayed initial fit guess
 }
 
 def getscale(m, M=-1): # used for dynamically rounding numbers for display
@@ -77,13 +78,13 @@ def loaddata_cb(sender, data):
 						df = (dfs[-1] - dfs[0])/len(dfs) * downf
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
-						dpg.configure_item('df', format='%.{}f'.format(getscale(df, df)+1))
+						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
 						downt = loaded['raw_shape'][1] / wfall.shape[1]
 						dt = loaded[key][0] / loaded['raw_shape'][1] * downt * 1000
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
-						dpg.configure_item(key, format='%.{}f'.format(getscale(dt, dt)+1))
+						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+1))
 					else:
 						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
 
@@ -108,14 +109,24 @@ def loaddata_cb(sender, data):
 		dpg.set_value('dfreqinput', wfall.shape[0])
 		dpg.set_value('dtimeinput', wfall.shape[1])
 
-		# update dm controls
+		# update result controls
 		if gdata['resultsdf'] is not None:
 			hasResults = burstname in gdata['resultsdf'].index.unique()
 			dpg.configure_item('PrevDM', enabled=hasResults)
 			dpg.configure_item('NextDM', enabled=hasResults)
-
-		# remove fit line series
-		gdata['popt'] = None
+			dpg.configure_item('DeleteBurstBtn', enabled=False) # unimplemented
+			dpg.configure_item('DeleteAllBtn', enabled=False) # unimplemented
+			if hasResults:
+				gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+				updateResultTable(gdata['burstdf'])
+				gdata['popt'] = gdata['burstdf'].set_index('DM').loc[gdata['displayedDM']][5:11]
+			else:
+				updateResultTable(pd.DataFrame())
+				gdata['popt'] = None
+				gdata['p0'] = None
+				dpg.set_value('EnableP0Box', False)
+				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
+				toggle_config('EnableP0Box', {'kwargs': ['enabled'], 'items': items})
 
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
@@ -142,16 +153,19 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 		pkidx = np.nanargmax(ts)
 	return wfall[..., pkidx-twidth:pkidx+twidth]
 
-def getcorr2dtexture(corr, popt=None):
+def getcorr2dtexture(corr, popt=None, p0=None):
 	plt.figure(figsize=(5, 5))
 
 	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray')
 	plt.clim(0, np.max(corr)/20)
 
-	if popt is not None:
+	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeFitmap(popt, corr)
-		if popt[0] > 0:
-			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
+		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
+
+	if p0 is not None and p0[0] > 0:
+		fitmap = driftrate.makeFitmap(p0, corr)
+		plt.contour(fitmap, [p0[0]/4, p0[0]*0.9], colors='g', alpha=0.75, origin='lower')
 
 	# remove axes, whitespace
 	plt.gca().set_axis_off()
@@ -222,7 +236,8 @@ def plotdata_cb(sender, data):
 		# dpg.set_plot_ylimits('WaterfallPlot', wy[0], wy[1])
 		pass
 
-	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, gdata['popt'])
+	p0 = gdata['p0'] if dpg.get_value('EnableP0Box') else None
+	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, gdata['popt'], p0)
 	dpg.add_texture("corr2dtexture", corr2dtexture, txwidth, txheight, format=dpg.mvTEX_RGB_INT)
 	dpg.add_image_series("Corr2dPlot", "Corr2d", "corr2dtexture",
 		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]]
@@ -326,16 +341,18 @@ def resulttable_cb(sender, data):
 
 	displaydm_cb('User', {'newdmidx': newsel[0]})
 
-def updateResultTable(results):
+def updateResultTable(resultsdf):
 	dpg.delete_item('Resulttable')
 	dpg.add_table('Resulttable', [], height=225, parent='ResultsGroup', callback=resulttable_cb)
-	columns = ['name', 'DM', 'amp', 'slope (mhz/ms)', 'theta', 'center_f']
+
+	# subset of driftrate.columns:
+	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'theta', 'center_f']
 	dpg.set_headers('Resulttable', columns)
 
 	# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
-	for row in results:
-		ids = [0, 1, 7, 3, 5, 2]
-		dpg.add_row('Resulttable', [row[i] for i in ids])
+	for burstname, rowdata in resultsdf.iterrows():
+		newrow = [burstname] + [rowdata[col] for col in columns[1:]]
+		dpg.add_row('Resulttable', newrow)
 
 def mousepos_cb(sender, data):
 	isOnWaterfall = dpg.is_item_hovered('WaterfallPlot')
@@ -366,23 +383,28 @@ def dmrange_cb(sender, data):
 	# trialDMs = np.append(np.linspace(dmrange[0], dmrange[1], num=numtrials), burstDM)
 	gdata['trialDMs'] = np.linspace(dmrange[0], dmrange[1], num=numtrials)
 
-def slope_cb(sender, data):
-	dpg.set_value('SlopeStatus', 'Status: Calculating...')
-
+def getCurrentBurst():
 	burstname = dpg.get_value('burstname').replace(',', '')
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
 	wfall = gdata['wfall'].copy()
 	wfall_cr = cropwfall(wfall)
 	burstDM = gdata['burstDM']
+	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
+
+def slope_cb(sender, data):
+	dpg.set_value('SlopeStatus', 'Status: Calculating...')
+
+	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 
 	trialDMs = np.append(gdata['trialDMs'], burstDM)
 	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq)
 	gdata['results'] += results
 	fileidx = dpg.get_value('burstselect')
 
-	burstdf = burstdf.loc[burstdf.index.unique()[fileidx]]
-	gdata['popt']    = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+	# burstdf = burstdf.loc[burstdf.index.unique()[0]]
+	burstdf = burstdf.loc[burstname]
+	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
 
 	gdata['burstdf'] = burstdf
 	if gdata['resultsdf'] is None:
@@ -392,12 +414,32 @@ def slope_cb(sender, data):
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
 	dpg.set_value('NumMeasurementsText', "# of Measurements: {}".format(len(burstdf)))
-	dpg.set_value('TotalNumMeasurementsText', "# of Measurements: {}".format(len(gdata['resultsdf'])))
+	dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	dpg.configure_item('PrevDM', enabled=True)
 	dpg.configure_item('NextDM', enabled=True)
 	dpg.configure_item('ExportResultsBtn', enabled=True)
-	updateResultTable(results)
-	print(driftlaw.computeModelDetails(burstdf))
+	dpg.configure_item('EnableP0Box', enabled=True)
+	initializeP0Group()
+	updateResultTable(burstdf)
+	# print(driftlaw.computeModelDetails(burstdf))
+	plotdata_cb(sender, data)
+
+def redodm_cb(sender, data):
+	p0 = gdata['p0']
+	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
+	result, burstdf = driftrate.processDMRange(
+		burstname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
+		df, dt, lowest_freq, p0=p0
+	)
+
+	df = gdata['resultsdf']
+	df[(df.index == burstname) & (df['DM'] == gdata['displayedDM'])] = burstdf
+
+	gdata['resultsdf'] = df
+	gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+
+	updateResultTable(gdata['burstdf'])
 	plotdata_cb(sender, data)
 
 def exportresults_cb(sender, data):
@@ -432,9 +474,72 @@ def displaydm_cb(sender, data):
 	gdata['popt'] = df.loc[gdata['displayedDM']][5:11]
 	plotdata_cb(sender, data)
 
+def confirmpopup(data, cb):
+	with popup("main", "ConfirmDelete", modal=True):
+		add_text("All those beautiful results will be deleted.\nThis operation cannot be undone!")
+		add_button("OK", width=75,
+			callback=lambda s, d: cb('ConfirmDelete', data)
+		)
+		add_same_line()
+		add_button("Cancel", width=75,
+			callback=lambda s, d: cb("ConfirmDelete", data)
+		)
+
+def deleteresults_cb(sender, data):
+	""" TODO: implement """
+	burstname = dpg.get_value('burstname').replace(',', '')
+	if sender == 'ConfirmDelete':
+		if data == 'burst':
+			df = gdata['resultsdf'].loc[~burstname] # nope
+		elif data == 'all':
+			gdata['resultsdf'] = None
+	else:
+		confirmpopup(data, deleteresults_cb)
+
+	print(sender, data)
+
+def initializeP0Group():
+	params = ['amplitude', 'xo', 'yo', 'sigmax', 'sigmay', 'angle']
+	p0 = []
+	for burst, row in gdata['burstdf'].iterrows():
+		if row['amplitude'] > 0:
+			p0 = [row[param] for param in params]
+	gdata['p0'] = p0
+	dpg.set_value("AmplitudeDrag", p0[0])
+	dpg.set_value("AngleDrag", p0[5])
+	dpg.set_value("x0y0Drag", [p0[1], p0[2]])
+	dpg.set_value("SigmaXYDrag", [p0[3], p0[4]])
+	for item in ['AmplitudeDrag', 'AngleDrag', 'x0y0Drag', 'SigmaXYDrag']:
+		val = dpg.get_value(item)
+		if type(val) == list:
+			val = val[0]
+		dpg.configure_item(item, speed=1/10**getscale(val), format='%.{}f'.format(getscale(val)+1))
+
+def enablep0_cb(sender, data):
+	toggle_config(sender, data)
+	updatep0_cb(sender, data)
+
+def updatep0_cb(sender, data):
+	p0 = []
+	for item in ['AmplitudeDrag', 'x0y0Drag', 'SigmaXYDrag', 'AngleDrag']:
+		val = dpg.get_value(item)
+		if type(val) == list:
+			p0 = p0 + val
+		else:
+			p0.append(val)
+	gdata['p0'] = p0
+	plotdata_cb(sender, data)
+
 def helpmarker(message):
 	dpg.add_same_line()
 	dpg.add_text("(?)", color=[150, 150, 150], tip=message)
+
+def toggle_config(sender, data):
+	config_dict = {}
+	for kwarg in data['kwargs']:
+		config_dict[kwarg] = dpg.get_value(sender)
+	for item in data['items']:
+		dpg.configure_item(item, **config_dict)
 
 ### Analysis window
 with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
@@ -497,7 +602,19 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 		dpg.add_same_line()
 		dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
-		dpg.add_button("Redo this DM", callback=log_cb, enabled=False)
+		dpg.add_button('DeleteBurstBtn',
+			label="Delete this bursts's results",
+			callback=deleteresults_cb,
+			callback_data='burst',
+			enabled=False
+		)
+		dpg.add_same_line()
+		dpg.add_button('DeleteAllBtn',
+			label="Delete ALL results",
+			callback=deleteresults_cb,
+			callback_data='all',
+			enabled=False
+		)
 
 		dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
 		dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
@@ -508,7 +625,27 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 				callback=displaydm_cb)
 			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
 				callback=displaydm_cb)
-			helpmarker('Select a row in the table also displays that DM')
+			helpmarker('Selecting a row also displays that DM')
+
+		with dpg.group('P0Group'):
+			with dpg.tree_node('Fit Initial Guess', default_open=False):
+				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
+				dpg.add_checkbox("EnableP0Box", label='Use Initial Guess', default_value=False,
+					enabled=False,
+					callback=enablep0_cb,
+					callback_data={'kwargs': ['enabled'], 'items': items}
+				)
+				dpg.add_same_line()
+				dpg.add_checkbox('P0AllDMsBox', label='Use for all DMs', default_value=False, enabled=False)
+				dpg.add_drag_float("AmplitudeDrag", label="Amplitude", enabled=False,
+					min_value=0, max_value=0, callback=updatep0_cb)
+				dpg.add_drag_float("AngleDrag", label="Angle", enabled=False,
+					min_value=0, max_value=0, callback=updatep0_cb)
+				dpg.add_drag_float2("x0y0Drag", label="x0, y0", enabled=False,
+					min_value=0, max_value=0, callback=updatep0_cb)
+				dpg.add_drag_float2("SigmaXYDrag", label="sigmax, sigmay", enabled=False,
+					min_value=0, max_value=0, callback=updatep0_cb)
+				dpg.add_button("RedoBtn", label="Redo this DM", callback=redodm_cb, enabled=False)
 
 		with dpg.group('ResultsGroup'):
 			dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
@@ -580,7 +717,7 @@ burstselect_cb('burstselect', None)
 importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
 
 ## dm range defaults
-dpg.set_value('dmrange', [516.3, 525.5])
+dpg.set_value('dmrange', [515.2, 525.5])
 dpg.set_value('numtrials', 2)
 dmrange_cb('user', None)
 

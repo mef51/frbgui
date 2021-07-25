@@ -275,14 +275,14 @@ columns = [
 	'time_res'
 ]
 
-def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq):
+def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[]):
 	results = []
 	for trialDM in tqdm(dmrange):
 		view = np.copy(wfall)
 		ddm = trialDM - burstdm
 		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
 
-		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False)
+		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
