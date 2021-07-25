@@ -1,11 +1,13 @@
 import dpg
 import frbrepeaters
-import driftrate
+import driftrate, driftlaw
 import os, glob, itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import warnings
+warnings.filterwarnings("ignore")
 
 # subfall, pkidx = frbrepeaters.loadpsrfits('data/oostrum2020/R1_frb121102/R1_B07.rf')
 # subfall, pkidx, wfall = frbrepeaters.loadpsrfits('data/oostrum2020/R1_frb121102/R1_B07.rf')
@@ -24,7 +26,9 @@ gdata = {
 	'globfilter'     : '*.npz',
 	'masks'          : {}, # will store lists of masked channel numbers
 	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\luo2020\\180813_ar_file\\ar_file\\converted',
-	'results'        : []
+	'results'        : [], # avoid using, might remove in favor of resultsdf
+	'resultsdf'      : None,
+	'popt'           : None # currently displayed 2d fit
 }
 
 def getscale(m, M=-1): # used for dynamically rounding numbers for display
@@ -55,8 +59,10 @@ def loaddata_cb(sender, data):
 	if 'fileidx' in data.keys():
 		filename = gdata['files'][data['fileidx']]
 		gdata['currfile'] = filename
-		dpg.set_value('burstname', makeburstname(filename))
+		burstname = makeburstname(filename)
+		dpg.set_value('burstname', burstname)
 		loaded = np.load(filename)
+
 		if type(loaded) == np.ndarray:
 			wfall = loaded
 		elif type(loaded) == np.lib.npyio.NpzFile:
@@ -83,7 +89,7 @@ def loaddata_cb(sender, data):
 
 			# initialize DM range elements
 			gdata['displayedDM'] = loaded['DM']
-			gdata['burstDM'] = loaded['DM']
+			gdata['burstDM']     = loaded['DM']
 			dpg.set_value('dmdisplayed', str(gdata['displayedDM']))
 			if dpg.get_value('dmrange')[0] == 0:
 				dmrange = [gdata['burstDM']*0.99, gdata['burstDM']*1.01]
@@ -101,6 +107,16 @@ def loaddata_cb(sender, data):
 		dpg.configure_item('dtimeinput', enabled=True, min_value=0, max_value=wfall.shape[1])
 		dpg.set_value('dfreqinput', wfall.shape[0])
 		dpg.set_value('dtimeinput', wfall.shape[1])
+
+		# update dm controls
+		if gdata['resultsdf'] is not None:
+			hasResults = burstname in gdata['resultsdf'].index.unique()
+			dpg.configure_item('PrevDM', enabled=hasResults)
+			dpg.configure_item('NextDM', enabled=hasResults)
+
+		# remove fit line series
+		gdata['popt'] = None
+
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
@@ -125,6 +141,30 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 	if not pkidx:
 		pkidx = np.nanargmax(ts)
 	return wfall[..., pkidx-twidth:pkidx+twidth]
+
+def getcorr2dtexture(corr, popt=None):
+	plt.figure(figsize=(5, 5))
+
+	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray')
+	plt.clim(0, np.max(corr)/20)
+
+	if popt is not None:
+		fitmap = driftrate.makeFitmap(popt, corr)
+		if popt[0] > 0:
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
+
+	# remove axes, whitespace
+	plt.gca().set_axis_off()
+	plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+	plt.margins(0,0)
+	plt.gca().xaxis.set_major_locator(plt.NullLocator())
+	plt.gca().yaxis.set_major_locator(plt.NullLocator())
+
+	fig = plt.gcf()
+	fig.canvas.draw()
+	texture = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+	w, h = fig.get_size_inches()*fig.dpi
+	return texture, int(w), int(h)
 
 def plotdata_cb(sender, data):
 	if not data:
@@ -182,12 +222,17 @@ def plotdata_cb(sender, data):
 		# dpg.set_plot_ylimits('WaterfallPlot', wy[0], wy[1])
 		pass
 
-	dpg.add_heat_series("Corr2dPlot", "Corr2d",
-		values=list(np.flipud(corr).flatten()),
-		rows=corr.shape[0], columns=corr.shape[1],
-		scale_min=scmin, scale_max=scmax,
-		# bounds_min=(0,0), bounds_max=(corr.shape[1], corr.shape[0]), format='')
-		bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3]), format='')
+	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, gdata['popt'])
+	dpg.add_texture("corr2dtexture", corr2dtexture, txwidth, txheight, format=dpg.mvTEX_RGB_INT)
+	dpg.add_image_series("Corr2dPlot", "Corr2d", "corr2dtexture",
+		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]]
+	)
+	# dpg.add_heat_series("Corr2dPlot", "Corr2d",
+	# 	values=list(np.flipud(corr).flatten()),
+	# 	rows=corr.shape[0], columns=corr.shape[1],
+	# 	scale_min=scmin, scale_max=scmax,
+	# 	# bounds_min=(0,0), bounds_max=(corr.shape[1], corr.shape[0]), format='')
+	# 	bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3]), format='')
 
 	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", list(range(0, len(tseries))), tseries)
 
@@ -272,6 +317,26 @@ def masktable_cb(sender, data):
 	for key, col in zip(gdata['masks'].keys(), columns):
 		dpg.add_column('Masktable', col, gdata['masks'][key])
 
+def resulttable_cb(sender, data):
+	coords = dpg.get_table_selections('Resulttable')
+	newsel = coords[0].copy()
+	for coord in coords:
+		dpg.set_table_selection('Resulttable', coord[0], coord[1], False)
+	# dpg.set_table_selection('Resulttable', newsel[0], newsel[1], True)
+
+	displaydm_cb('User', {'newdmidx': newsel[0]})
+
+def updateResultTable(results):
+	dpg.delete_item('Resulttable')
+	dpg.add_table('Resulttable', [], height=225, parent='ResultsGroup', callback=resulttable_cb)
+	columns = ['name', 'DM', 'amp', 'slope (mhz/ms)', 'theta', 'center_f']
+	dpg.set_headers('Resulttable', columns)
+
+	# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
+	for row in results:
+		ids = [0, 1, 7, 3, 5, 2]
+		dpg.add_row('Resulttable', [row[i] for i in ids])
+
 def mousepos_cb(sender, data):
 	isOnWaterfall = dpg.is_item_hovered('WaterfallPlot')
 	if isOnWaterfall:
@@ -288,6 +353,7 @@ def mousepos_cb(sender, data):
 
 def dmrange_cb(sender, data):
 	dmrange   = dpg.get_value('dmrange')
+	dmrange   = np.round(dmrange, 4) # dpg.get_value introduces rounding errors
 	numtrials = dpg.get_value('numtrials')
 	burstDM = gdata['burstDM']
 	if dmrange[1] < dmrange[0]:
@@ -297,8 +363,8 @@ def dmrange_cb(sender, data):
 		dpg.configure_item('DMWarning', show=True)
 	else:
 		dpg.configure_item('DMWarning', show=False)
-	trialDMs = np.append(np.linspace(dmrange[0], dmrange[1], num=numtrials), burstDM)
-	gdata['trialDMs'] = trialDMs
+	# trialDMs = np.append(np.linspace(dmrange[0], dmrange[1], num=numtrials), burstDM)
+	gdata['trialDMs'] = np.linspace(dmrange[0], dmrange[1], num=numtrials)
 
 def slope_cb(sender, data):
 	dpg.set_value('SlopeStatus', 'Status: Calculating...')
@@ -310,65 +376,61 @@ def slope_cb(sender, data):
 	wfall_cr = cropwfall(wfall)
 	burstDM = gdata['burstDM']
 
-	result, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, gdata['trialDMs'], df, dt, lowest_freq)
-	gdata['results'] += result
-	burstdf = driftrate.exportresults(result).loc[burstdf.index.unique()[0]] # TODO: Replace [0] with currently selected file
-	gdata['burstdf'] = burstdf
+	trialDMs = np.append(gdata['trialDMs'], burstDM)
+	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq)
+	gdata['results'] += results
+	fileidx = dpg.get_value('burstselect')
 
-	# TODO: remove
-	measurement = driftrate.processBurst(wfall_cr, df, dt, lowest_freq, verbose=False)
-	slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
+	burstdf = burstdf.loc[burstdf.index.unique()[fileidx]]
+	gdata['popt']    = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+
+	gdata['burstdf'] = burstdf
+	if gdata['resultsdf'] is None:
+		gdata['resultsdf'] = burstdf
+	else:
+		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
 	dpg.set_value('NumMeasurementsText', "# of Measurements: {}".format(len(burstdf)))
-	dpg.set_value('slope', slope)
-	dpg.configure_item('slope', format='%.{}f'.format(getscale(slope, slope)+2))
-	dpg.set_value('slope_err', slope_err)
-	dpg.configure_item('slope_err', format='%.{}f'.format(getscale(slope_err, slope_err)+2))
-	dpg.set_value('center_f_derived', center_f)
-	dpg.configure_item('center_f_derived', format='%.{}f'.format(getscale(center_f, center_f)+2))
-
+	dpg.set_value('TotalNumMeasurementsText', "# of Measurements: {}".format(len(gdata['resultsdf'])))
 	dpg.configure_item('PrevDM', enabled=True)
 	dpg.configure_item('NextDM', enabled=True)
 	dpg.configure_item('ExportResultsBtn', enabled=True)
-
-	drawcorrfitline(slope)
-	# bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3])
-
-def drawcorrfitline(slope):
-	x = np.array(gdata['correxts'][:2])
-	dpg.add_line_series('Corr2dPlot', 'semimajor', x, slope*x, color=[0,0,1,-1], update_bounds=False)
-	if slope != 0:
-		dpg.add_line_series('Corr2dPlot', 'semiminor', x, -x/slope, update_bounds=False)
+	updateResultTable(results)
+	print(driftlaw.computeModelDetails(burstdf))
+	plotdata_cb(sender, data)
 
 def exportresults_cb(sender, data):
 	results = gdata['results']
+	df = driftrate.exportresults(results)
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
-	df = driftrate.exportresults(results)
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
 	df.to_csv(filename)
 	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
 	dpg.configure_item('ExportResultText', show=True)
 
 def displaydm_cb(sender, data):
-	dmlist = list(gdata['trialDMs'])
+	burstDM = gdata['burstDM']
+	trialDMs = np.append(gdata['trialDMs'], burstDM)
+	dmlist = list(trialDMs)
 	dmidx = dmlist.index(gdata['displayedDM'])
 
-	if sender == 'NextDM':
-		newidx = dmidx + 1
-		if not (newidx < len(dmlist)):
-			newidx = 0
+	if sender == 'User':
+		newdmidx = data['newdmidx']
+	elif sender == 'NextDM':
+		newdmidx = dmidx + 1
+		if not (newdmidx < len(dmlist)):
+			newdmidx = 0
 	elif sender == 'PrevDM':
-		newidx = dmidx - 1
-	gdata['displayedDM'] = dmlist[newidx]
+		newdmidx = dmidx - 1
+	gdata['displayedDM'] = dmlist[newdmidx]
 	dpg.set_value('dmdisplayed', str(round(gdata['displayedDM'], getscale(gdata['displayedDM']))))
 
-	plotdata_cb(sender, data)
 	df = gdata['burstdf'].set_index('DM')
-	df = df.set_index(df.index.astype('float')) # index type changes for some reason
-	slope = float(df.loc[gdata['displayedDM']]['slope (mhz/ms)'])
-	drawcorrfitline(slope)
+	df = df.set_index(df.index.astype('float'))
+	gdata['popt'] = df.loc[gdata['displayedDM']][5:11]
+	plotdata_cb(sender, data)
 
 def helpmarker(message):
 	dpg.add_same_line()
@@ -431,15 +493,14 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 			dpg.add_same_line()
 			dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
 
-	with dpg.collapsing_header("3. Sub-burst Slope Measurements", default_open=True):
-		dpg.add_button("Measure Slope", callback=slope_cb)
+	with dpg.collapsing_header('SlopeSection', label="3. Sub-burst Slope Measurements", default_open=True):
+		dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 		dpg.add_same_line()
 		dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
-		dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
-		dpg.add_button('ExportResultsBtn', label="Export Results", callback=exportresults_cb, enabled=False)
-		dpg.add_text('ExportResultText', default_value='', show=False)
+		dpg.add_button("Redo this DM", callback=log_cb, enabled=False)
 
-		dpg.add_text('NumMeasurementsText', default_value="# of Measurements: (none)")
+		dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
+		dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
 		with dpg.group("DMselector", horizontal=True):
 			dpg.add_text("DM Displayed (pc/cm^3): ")
 			dpg.add_text("dmdisplayed", default_value=str(dpg.get_value('DM')))
@@ -447,12 +508,15 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 				callback=displaydm_cb)
 			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
 				callback=displaydm_cb)
+			helpmarker('Select a row in the table also displays that DM')
 
-		dpg.add_input_float('slope',     label='Sub-burst Slope')
-		dpg.add_input_float('slope_err', label='Sub-burst Slope Error')
-		dpg.add_input_float('center_f_derived',  label='Center Frequency (averaged)')
+		with dpg.group('ResultsGroup'):
+			dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
 
-
+		dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
+		dpg.add_button('ExportResultsBtn', label="Export Full Results", callback=exportresults_cb, enabled=False)
+		dpg.add_same_line()
+		dpg.add_text('ExportResultText', default_value='', show=False, color=(0, 255, 0))
 
 ### Plotting window
 with dpg.window("FRB Plots", width=1035, height=745, x_pos=600, y_pos=30):
@@ -515,8 +579,9 @@ directory_cb('user', [gdata['datadir']]) # default directory
 burstselect_cb('burstselect', None)
 importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
 
-# dm range 516.3 - 525.5
+## dm range defaults
 dpg.set_value('dmrange', [516.3, 525.5])
+dpg.set_value('numtrials', 2)
 dmrange_cb('user', None)
 
 dpg.start_dearpygui(primary_window='main')

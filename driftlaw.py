@@ -9,10 +9,10 @@ def computeModelDetails(frame):
 
 	tauwerror_expr = lambda r: 1e3*r['time_res']*np.sqrt(r['max_sigma']**6*r['min_sigma_error']**2*np.cos(r['angle']-np.pi/2)**4 + r['angle_error']**2*r['max_sigma']**2*r['min_sigma']**2*(-r['max_sigma']**2 + r['min_sigma']**2)**2*np.cos(r['angle']-np.pi/2)**2*np.sin(r['angle']-np.pi/2)**2 + r['max_sigma_error']**2*r['min_sigma']**6*np.sin(r['angle']-np.pi/2)**4)/(r['max_sigma']**2*np.cos(r['angle']-np.pi/2)**2 + r['min_sigma']**2*np.sin(r['angle']-np.pi/2)**2)**1.5
 
-	frame['drift_abs'] = -1*(frame['drift (mhz/ms)'])
-	frame['drift_over_nuobs'] = frame[['drift_abs','center_f']].apply(lambda row: row['drift_abs'] / row['center_f'], axis=1)
-	frame['recip_drift_over_nuobs'] = 1/frame['drift_over_nuobs']
-	frame['drift_abs_nuobssq'] = frame['drift_abs']/frame['center_f']**2/1000 # unitless
+	frame['slope_abs'] = -1*(frame['slope (mhz/ms)'])
+	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
+	frame['recip_slope_over_nuobs'] = 1/frame['slope_over_nuobs']
+	frame['slope_abs_nuobssq'] = frame['slope_abs']/frame['center_f']**2/1000 # unitless
 	frame['min_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: min(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
 	frame['max_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: max(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
 	# the following two lines assume that if sigmax > sigmay, then sigmax_error > sigmay_error, which is true (so far) for this dataset
@@ -37,7 +37,7 @@ def computeModelDetails(frame):
 
 	## Redshift corrections
 	if 'z' in frame.index:
-		frame['drift_z'] = frame[['drift_over_nuobs', 'z']].apply(lambda row: row['drift_over_nuobs']*(1+row['z']), axis=1)
+		frame['slope_z'] = frame[['slope_over_nuobs', 'z']].apply(lambda row: row['slope_over_nuobs']*(1+row['z']), axis=1)
 		frame['tau_w_ms_z'] = frame[['tau_w_ms', 'z']].apply(lambda row: row['tau_w_ms']/(1+row['z']), axis=1)
 
 	return frame
@@ -105,7 +105,7 @@ def fitreciprocal_log(x, data, sigma=1, loglog=False):
 
 def modelerror(frame):
 	ex = np.sqrt(frame['red_chisq'])*frame['tau_w_error']
-	ey = np.sqrt(frame['red_chisq'])*frame['drift error (mhz/ms)']/frame['center_f']
+	ey = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
 	return ex, ey
 
 def rangeerror(frame):
@@ -118,20 +118,20 @@ def rangeerror(frame):
 	errors.
 	"""
 	ex = [np.array([frame['tau_w_ms'] - frame['tw_min'], frame['tw_max'] - frame['tau_w_ms']])]
-	ey = [np.array([frame['drift_over_nuobs'] - frame['drift_nu_min'], frame['drift_nu_max'] - frame['drift_over_nuobs']])]
+	ey = [np.array([frame['slope_over_nuobs'] - frame['slope_nu_min'], frame['slope_nu_max'] - frame['slope_over_nuobs']])]
 	return ex, ey
 
 def log_error(frame):
 	""" see modelerror() """
 	sx = np.log((frame['tau_w_ms'] + np.sqrt(frame['red_chisq'])*frame['tau_w_error']) / frame['tau_w_ms'])
-	sy = np.log((frame['drift_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['drift error (mhz/ms)'])) / frame['drift_over_nuobs'])
+	sy = np.log((frame['slope_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['slope error (mhz/ms)'])) / frame['slope_over_nuobs'])
 	return sx, sy
 
 def rangelog_error(frame):
 	""" The range errors are asymmetric. Average the error """
 	ex, ey = rangeerror(frame)
 	ex = np.log((frame['tau_w_ms'] + (ex[0][0]+ex[0][1])/2 ) / frame['tau_w_ms'])
-	ey = np.log((frame['drift_over_nuobs'] + (ey[0][0]+ey[0][1])/2) / frame['drift_over_nuobs'])
+	ey = np.log((frame['slope_over_nuobs'] + (ey[0][0]+ey[0][1])/2) / frame['slope_over_nuobs'])
 	return ey, ey
 	# return np.log(np.maximum(ex[0][0], ex[0][1])), np.log(np.maximum(ey[0][0], ey[0][1]))
 
@@ -145,11 +145,11 @@ def fitodr(frame, beta0=[1000], errorfunc=log_error, log=True):
 	fit_model_log = scipy.odr.Model(reciprocal_odr_log)
 
 	fitdata = scipy.odr.RealData(frame['tau_w_ms'],
-								 frame['drift_over_nuobs'],
+								 frame['slope_over_nuobs'],
 								 sx=rangeerror_odr(frame)[0],
 								 sy=rangeerror_odr(frame)[1])
 	fitdata_log = scipy.odr.RealData(np.log(frame['tau_w_ms']),
-									 np.log(frame['drift_over_nuobs']),
+									 np.log(frame['slope_over_nuobs']),
 									 sx=errorfunc(frame)[0],
 									 sy=errorfunc(frame)[1])
 
@@ -166,34 +166,34 @@ def fitodr(frame, beta0=[1000], errorfunc=log_error, log=True):
 		# print('linear odr')
 		return odrfitter.run()
 
-def driftranges(source):
+def sloperanges(source):
 	"""
 	Given all burst and model data at different trial DMs,
-	computes the range of drifts durations across the range of trial DMs
+	computes the range of slopes durations across the range of trial DMs
 	"""
 
-	yaxis = 'drift_over_nuobs'
+	yaxis = 'slope_over_nuobs'
 	xaxis ='tau_w_ms'
 	for burst in source.index.unique():
 		burstdf = source.loc[burst]
 		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
-		edriftnuobs = np.sqrt(burstdf['red_chisq'])*burstdf['drift error (mhz/ms)']/burstdf['center_f']
+		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
 
-		dmax, dmin = np.max(burstdf[yaxis] + edriftnuobs), np.min(burstdf[yaxis] - edriftnuobs)
+		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
 
-		source.loc[burst, 'drift_nu_max'] = dmax
-		source.loc[burst, 'drift_nu_min'] = dmin
-		source.loc[burst, 'drift_max'] = dmax*burstdf['center_f']
-		source.loc[burst, 'drift_min'] = dmin*burstdf['center_f']
+		source.loc[burst, 'slope_nu_max'] = dmax
+		source.loc[burst, 'slope_nu_min'] = dmin
+		source.loc[burst, 'slope_max'] = dmax*burstdf['center_f']
+		source.loc[burst, 'slope_min'] = dmin*burstdf['center_f']
 		source.loc[burst, 'tw_max']    = tmax
 		source.loc[burst, 'tw_min']    = tmin
 
-		# print(f'burst: {burst},\t\tdriftrange = ({dmin}, {dmax}),\t\ttwrange = ({tmin}, {tmax})')
+		# print(f'burst: {burst},\t\tsloperange = ({dmin}, {dmax}),\t\ttwrange = ({tmin}, {tmax})')
 
 	return source
 
-def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
+def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
 						markers=['o', 'p', 'X', 'd', 's'], hidefit=[], hidefitlabel=False,
 						fitlines=['r-', 'b--', 'g-.'], fitextents=None,
 						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False):
@@ -204,15 +204,15 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	markersize = 125#100
 	fontsize = 25 #18
 	annotsize = 14
-	filename = 'log_drift_over_nu_obsvsduration' if logscale else 'drift_over_nu_obsvsduration'
+	filename = 'log_slope_over_nu_obsvsduration' if logscale else 'slope_over_nu_obsvsduration'
 	figsize = (17, 8)
 	figsize = (17, 9)
 	# figsize = (14, 10)
 
-	yaxis = 'drift_over_nuobs'
+	yaxis = 'slope_over_nuobs'
 	yaxis_lbl = 'Sub-burst Slope $\\,\\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|(1/\\nu_{\\mathrm{obs}})$ (ms$^{-1}$)'
-	# yaxis = 'recip_drift_over_nuobs'
-	# yaxis_lbl = 'nu_obs / drift'
+	# yaxis = 'recip_slope_over_nuobs'
+	# yaxis_lbl = 'nu_obs / slope'
 
 	if type(markers) == list:
 		markers = itertools.cycle(markers)
@@ -264,9 +264,9 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		## compute reduced chisq
 		# parameter error
 		ex = frame['tau_w_error']*np.sqrt(frame['red_chisq'])
-		ey = frame['drift error (mhz/ms)']/frame['center_f']*np.sqrt(frame['red_chisq'])
+		ey = frame['slope error (mhz/ms)']/frame['center_f']*np.sqrt(frame['red_chisq'])
 		data_err = np.sqrt(ex**2 + ey**2)
-		residuals = frame['drift_over_nuobs'] - param/frame['tau_w_ms']
+		residuals = frame['slope_over_nuobs'] - param/frame['tau_w_ms']
 		chisq = np.sum((residuals / data_err) ** 2)
 		red_chisq = chisq / (len(frame) - 1)
 		# print(residuals)
@@ -284,7 +284,7 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	if dmtrace:
 		sorteddata = pd.concat([frames[dmi] for dmi in np.argsort(labels)])
 		for bid in sorteddata.index.unique():
-			plt.plot(sorteddata.loc[bid]['tau_w_ms'], sorteddata.loc[bid]['drift_over_nuobs'])
+			plt.plot(sorteddata.loc[bid]['tau_w_ms'], sorteddata.loc[bid]['slope_over_nuobs'])
 
 	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
 	ax.set_ylabel(yaxis_lbl, size=fontsize)
@@ -296,50 +296,50 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 
 	######
 
-	ax = michillibursts.plot.scatter(x='tau_w_ms', y='drift_over_nuobs',
+	ax = michillibursts.plot.scatter(x='tau_w_ms', y='slope_over_nuobs',
 								   xerr=np.sqrt(michillibursts['red_chisq'])*michillibursts['tau_w_error'],
-								   yerr=np.sqrt(michillibursts['red_chisq'])*michillibursts['drift error (mhz/ms)']/michillibursts['center_f'],
+								   yerr=np.sqrt(michillibursts['red_chisq'])*michillibursts['slope error (mhz/ms)']/michillibursts['center_f'],
 								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='o', edgecolors='k',
 								   label='FRB121102 Michilli et al. (2018)')
 
-	selectbursts180916.plot.scatter(ax=ax, x='tau_w_ms', y='drift_over_nuobs',
+	selectbursts180916.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
 								   xerr=np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['tau_w_error'],
-								   yerr=np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['drift error (mhz/ms)']/selectbursts180916['center_f'],
+								   yerr=np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['slope error (mhz/ms)']/selectbursts180916['center_f'],
 								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='p', edgecolors='k',
 								   label='FRB180916.J0158+65 bursts')
-	selectbursts180814.plot.scatter(ax=ax, x='tau_w_ms', y='drift_over_nuobs',
+	selectbursts180814.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
 								   xerr=np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['tau_w_error'],
-								   yerr=np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['drift error (mhz/ms)']/selectbursts180814['center_f'],
+								   yerr=np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['slope error (mhz/ms)']/selectbursts180814['center_f'],
 								   figsize=figsize, s=markersize+50, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='X', edgecolors='k',
 								   label='FRB180814.J0422+73 bursts')
 								   #label='FRB180814.J0422+73 bursts @ DM={} pc/cm$^3$'.format(dms180814[dm_idx]))
-	burstsSGR1935.plot.scatter(ax=ax, x='tau_w_ms', y='drift_over_nuobs',
+	burstsSGR1935.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
 								   xerr=np.sqrt(burstsSGR1935['red_chisq'])*burstsSGR1935['tau_w_error'],
-								   yerr=np.sqrt(burstsSGR1935['red_chisq'])*burstsSGR1935['drift error (mhz/ms)']/burstsSGR1935['center_f'],
+								   yerr=np.sqrt(burstsSGR1935['red_chisq'])*burstsSGR1935['slope error (mhz/ms)']/burstsSGR1935['center_f'],
 								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='p', edgecolors='k',
 								   label='SGR1935+2154 bursts')
 
-	otherbursts.head(5).plot.scatter(ax=ax, x='tau_w_ms', y='drift_over_nuobs',
+	otherbursts.head(5).plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
 							 xerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['tau_w_error'],
-							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['drift error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
+							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['slope error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
 							 figsize=figsize, s=markersize, c='color', colorbar=False, marker='d', label='FRB121102 Gajjar et al. (2018)')
-	otherbursts.tail(1).plot.scatter(ax=ax, x='tau_w_ms', y='drift_over_nuobs',
+	otherbursts.tail(1).plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
 							 xerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['tau_w_error'],
-							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['drift error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
+							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['slope error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
 							 figsize=figsize, s=markersize, c='color', colorbar=False, marker='s', label='FRB121102 Josephy et al. (2019)')
 
 	# for k, v in otherbursts.iterrows():
-	#     ax.annotate(k+'_c', (v['tau_w_ms'], v['drift_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
+	#     ax.annotate(k+'_c', (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
 	# for k, v in michillibursts.iterrows():
-	#     ax.annotate(k, (v['tau_w_ms'], v['drift_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
+	#     ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
 	# for k, v in selectbursts180916.iterrows():
-	#     ax.annotate(int(k) if k != 15.5 else k, (v['tau_w_ms'], v['drift_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
+	#     ax.annotate(int(k) if k != 15.5 else k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
 	for k, v in burstsSGR1935.iterrows():
-		if v['drift_over_nuobs'] > 0 or not logscale:
-			ax.annotate(k, (v['tau_w_ms'], v['drift_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
+		if v['slope_over_nuobs'] > 0 or not logscale:
+			ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
 	# for k, v in selectbursts180814.iterrows():
-	#     if v['drift_over_nuobs'] > 0:
-	#         ax.annotate(k, (v['tau_w_ms'], v['drift_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
+	#     if v['slope_over_nuobs'] > 0:
+	#         ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
 
 	if not logscale:
 		pass
@@ -349,45 +349,45 @@ def plotDriftVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		ax.set_xlim(0.04, 20)
 		ax.set_ylim(10**-3, 10**1)
 
-	# ax.set_title('Sub-burst Drift Rate vs. Burst Duration (fit to Michilli bursts)', size=fontsize)
+	# ax.set_title('Sub-burst slope Rate vs. Burst Duration (fit to Michilli bursts)', size=fontsize)
 	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
-	ax.set_ylabel('Sub-burst Drift Rate $\,(1/\\nu_{\\mathrm{obs}}) \left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|$ (ms$^{-1}$)', size=fontsize)
+	ax.set_ylabel('Sub-burst slope Rate $\,(1/\\nu_{\\mathrm{obs}}) \left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|$ (ms$^{-1}$)', size=fontsize)
 
-	def driftnu_error(frame):
+	def slopenu_error(frame):
 		sx = np.log((frame['tau_w_ms'] + np.sqrt(frame['red_chisq'])*frame['tau_w_error']) / frame['tau_w_ms'])
-		sy = np.log((frame['drift_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['drift error (mhz/ms)'])) / frame['drift_over_nuobs'])
+		sy = np.log((frame['slope_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['slope error (mhz/ms)'])) / frame['slope_over_nuobs'])
 		return sx, sy
 
 	# ODR fit log
 	num_to_fit = 24 #23 to exlude chime
 	fitdata_log = scipy.odr.RealData(np.log(selectbursts121102.head(num_to_fit)['tau_w_ms']),
-								 np.log(selectbursts121102.head(num_to_fit)['drift_over_nuobs']),
-								 sx=driftnu_error(selectbursts121102.head(num_to_fit))[0],
-								 sy=driftnu_error(selectbursts121102.head(num_to_fit))[1])
+								 np.log(selectbursts121102.head(num_to_fit)['slope_over_nuobs']),
+								 sx=slopenu_error(selectbursts121102.head(num_to_fit))[0],
+								 sy=slopenu_error(selectbursts121102.head(num_to_fit))[1])
 								 #sx=np.log(np.sqrt(selectbursts121102.head(num_to_fit)['red_chisq'])*selectbursts121102.head(num_to_fit)['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts121102.head(num_to_fit)['red_chisq'])*selectbursts121102.head(num_to_fit)['drift error (mhz/ms)']/selectbursts121102.head(num_to_fit)['center_f']))
+								 #sy=np.log(np.sqrt(selectbursts121102.head(num_to_fit)['red_chisq'])*selectbursts121102.head(num_to_fit)['slope error (mhz/ms)']/selectbursts121102.head(num_to_fit)['center_f']))
 	odrfitter_log = scipy.odr.ODR(fitdata_log, fit_model_log, beta0=[500])
 	odrfitter_log.set_job(fit_type=0)
 	odrfit_log = odrfitter_log.run()
 
 	# ODR fit log 180916
 	fitdata_log_180916 = scipy.odr.RealData(np.log(selectbursts180916['tau_w_ms']),
-								 np.log(selectbursts180916['drift_over_nuobs']),
-								 sx=driftnu_error(selectbursts180916)[0],
-								 sy=driftnu_error(selectbursts180916)[1])
+								 np.log(selectbursts180916['slope_over_nuobs']),
+								 sx=slopenu_error(selectbursts180916)[0],
+								 sy=slopenu_error(selectbursts180916)[1])
 								 #sx=np.log(np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['drift error (mhz/ms)']/selectbursts180916['center_f'] ))
+								 #sy=np.log(np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['slope error (mhz/ms)']/selectbursts180916['center_f'] ))
 	odrfitter_log180916 = scipy.odr.ODR(fitdata_log_180916, fit_model_log, beta0=[1000])
 	odrfitter_log180916.set_job(fit_type=0)
 	odrfit_log180916 = odrfitter_log180916.run()
 
 	# ODR fit log 180814
 	fitdata_log_180814 = scipy.odr.RealData(np.log(selectbursts180814['tau_w_ms']),
-								 np.log(selectbursts180814['drift_over_nuobs']),
-								 sx=driftnu_error(selectbursts180814)[0],
-								 sy=driftnu_error(selectbursts180814)[1])
+								 np.log(selectbursts180814['slope_over_nuobs']),
+								 sx=slopenu_error(selectbursts180814)[0],
+								 sy=slopenu_error(selectbursts180814)[1])
 								 #sx=np.log(np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['drift error (mhz/ms)']/selectbursts180814['center_f'] ))
+								 #sy=np.log(np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['slope error (mhz/ms)']/selectbursts180814['center_f'] ))
 	odrfitter_log180814 = scipy.odr.ODR(fitdata_log_180814, fit_model_log, beta0=[1000])
 	odrfitter_log180814.set_job(fit_type=0)
 	odrfit_log180814 = odrfitter_log180814.run()
@@ -458,7 +458,7 @@ def _plotAnglevsDM(frames, annotate=False, save=False, drops=[]):
 
 	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
 	#ax.set_ylabel('-$\pi/2 + $ Gaussian2d angle (rad)', size=fontsize)
-	ax.set_ylabel('Sub-burst Drift Angle $\\theta$ (rad)', size=fontsize)
+	ax.set_ylabel('Sub-burst slope Angle $\\theta$ (rad)', size=fontsize)
 
 	## Find Fits
 	lstyles = ['-', '--', '-.', ':']

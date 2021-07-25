@@ -202,6 +202,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		else:
 			popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
 			perr = np.sqrt(np.diag(pcov))
+			popt = list(popt); perr = list(perr) # avoid type errors
 
 		if verbose: print('fit parameters:', popt)
 	except (RuntimeError, ValueError):
@@ -244,6 +245,11 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		fitmap
 	)
 
+def makeFitmap(popt, corr):
+	x, y = np.meshgrid(range(0, corr.shape[1]), range(0, corr.shape[0]))
+	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
+	return fitmap
+
 # make result headers global
 columns = [
 	'name',
@@ -278,8 +284,7 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
-
-		datarow = np.concatenate(([burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]))
+		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
 
 	df = exportresults(results)

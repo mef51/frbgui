@@ -203,4 +203,10 @@ meeting notes:
 * scipy.curve_fit is getting completely stuck?? >> was passing huge waterfall instead of windowed waterfall
 
 ## july 19
-*
+* ask about redshift
+
+## july 21
+* wip on multi-burst results
+
+## july 24
+* make image from matplotlib corr2d plot and use that in the gui. this is a workaround that can show the fit contours since dpg cant do contour plots
