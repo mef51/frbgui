@@ -212,3 +212,7 @@ meeting notes:
 * make image from matplotlib corr2d plot and use that in the gui. this is a workaround that can show the fit contours since dpg cant do contour plots
 * revising DM range for frb180301 to 515.2 - 525.5. Low end based on burst 5 DM error
 * add ability to specify initial fit guess and redo DMs
+
+## july 25-26
+* add burst splitting for frbs with multiple sub-bursts
+* redo dm and p0 for sub-bursts is buggy

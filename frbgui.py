@@ -21,15 +21,20 @@ warnings.filterwarnings("ignore")
 # dpg.show_debug()
 dpg.show_logger()
 
-# GUI data is stored in this object. Defaults initialized here
+# GUI data is stored in this object. Defaults initialized here and at the bottom
 gdata = {
 	'globfilter'     : '*.npz',
-	'masks'          : {}, # will store lists of masked channel numbers
+	'masks'          : {},                   # will store lists of masked channel numbers
 	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\luo2020\\180813_ar_file\\ar_file\\converted',
-	'results'        : [], # avoid using, might remove in favor of resultsdf
+	'multiburst'     : {                     # store all multiburst metadata
+						'numregions': 1,
+						'enabled': False,
+						},
+	'results'        : [],                   # avoid using, might remove in favor of resultsdf
 	'resultsdf'      : None,
-	'popt'           : None, # currently displayed 2d fit
-	'p0'             : None # currently displayed initial fit guess
+	'popt'           : None,                 # currently displayed 2d fit
+	'p0'             : None,                  # currently displayed initial fit guess
+	'displayedBurst' : ''                    # name of displayed burst
 }
 
 def getscale(m, M=-1): # used for dynamically rounding numbers for display
@@ -128,6 +133,11 @@ def loaddata_cb(sender, data):
 				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
 				toggle_config('EnableP0Box', {'kwargs': ['enabled'], 'items': items})
 
+		# setup burst splitting
+		for regid in range(1, gdata['multiburst']['numregions']):
+			if dpg.does_item_exist('RegionSelector{}'.format(regid)):
+				dpg.configure_item('Region{}'.format(regid), max_value=cropwfall(wfall).shape[1])
+
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
@@ -184,13 +194,33 @@ def plotdata_cb(sender, data):
 	if not data:
 		data = {}
 
-	wfall       = gdata['wfall']
 	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
-
 	ddm = gdata['displayedDM'] - gdata['burstDM']
-	wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
-	wfall_dd_cr = cropwfall(wfall_dd)
+	subpopt = None
+	burstname = dpg.get_value('burstname').replace(',', '')
+	if ('newdmidx' in data) and gdata['multiburst']['enabled']:
+		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+		subname = subburstdf.index[data['newdmidx']]
+		if subname == burstname:
+			gdata['displayedBurst'] = burstname
+			wfall = gdata['wfall']
+			wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
+			wfall_dd_cr = cropwfall(wfall_dd)
+		else:
+			gdata['displayedBurst'] = subname
+			subbursts = getSubbursts()
+			subburst = subbursts[subname]
+			wfall_cr = subburst
+			wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
+
+			# gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+			subpopt = subburstdf.loc[subname].set_index('DM').loc[gdata['displayedDM']][5:11]
+	else:
+		gdata['displayedBurst'] = burstname
+		wfall       = gdata['wfall']
+		wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
+		wfall_dd_cr = cropwfall(wfall_dd)
 	tseries = np.nanmean(wfall_dd_cr, axis=0)
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
@@ -237,17 +267,12 @@ def plotdata_cb(sender, data):
 		pass
 
 	p0 = gdata['p0'] if dpg.get_value('EnableP0Box') else None
-	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, gdata['popt'], p0)
+	popt = gdata['popt'] if subpopt is None else subpopt
+	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0)
 	dpg.add_texture("corr2dtexture", corr2dtexture, txwidth, txheight, format=dpg.mvTEX_RGB_INT)
 	dpg.add_image_series("Corr2dPlot", "Corr2d", "corr2dtexture",
 		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]]
 	)
-	# dpg.add_heat_series("Corr2dPlot", "Corr2d",
-	# 	values=list(np.flipud(corr).flatten()),
-	# 	rows=corr.shape[0], columns=corr.shape[1],
-	# 	scale_min=scmin, scale_max=scmax,
-	# 	# bounds_min=(0,0), bounds_max=(corr.shape[1], corr.shape[0]), format='')
-	# 	bounds_min=(correxts[0],correxts[2]), bounds_max=(correxts[1], correxts[3]), format='')
 
 	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", list(range(0, len(tseries))), tseries)
 
@@ -337,7 +362,6 @@ def resulttable_cb(sender, data):
 	newsel = coords[0].copy()
 	for coord in coords:
 		dpg.set_table_selection('Resulttable', coord[0], coord[1], False)
-	# dpg.set_table_selection('Resulttable', newsel[0], newsel[1], True)
 
 	displaydm_cb('User', {'newdmidx': newsel[0]})
 
@@ -400,17 +424,29 @@ def slope_cb(sender, data):
 	trialDMs = np.append(gdata['trialDMs'], burstDM)
 	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq)
 	gdata['results'] += results
-	fileidx = dpg.get_value('burstselect')
 
-	# burstdf = burstdf.loc[burstdf.index.unique()[0]]
-	burstdf = burstdf.loc[burstname]
-	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+	if gdata['multiburst']['enabled']:
+		subbursts = getSubbursts()
+		subresults, subdf = [], pd.DataFrame()
+		for subname, subburst in subbursts.items():
+			print('processing {}'.format(subname))
+			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt, lowest_freq)
+			subresults.append(ret)
+			subdf = subdf.append(retdf)
 
-	gdata['burstdf'] = burstdf
+		gdata['results'] += subresults
+		burstdf = burstdf.append(subdf)
+		subburstdf = burstdf.copy()
+
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
 		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
+	print(gdata['resultsdf'])
+
+	burstdf = burstdf.loc[burstname]
+	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
+	gdata['burstdf'] = burstdf
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
 	dpg.set_value('NumMeasurementsText', "# of Measurements: {}".format(len(burstdf)))
@@ -420,31 +456,39 @@ def slope_cb(sender, data):
 	dpg.configure_item('ExportResultsBtn', enabled=True)
 	dpg.configure_item('EnableP0Box', enabled=True)
 	initializeP0Group()
-	updateResultTable(burstdf)
-	# print(driftlaw.computeModelDetails(burstdf))
+	if gdata['multiburst']['enabled']:
+		updateResultTable(subburstdf)
+	else:
+		updateResultTable(burstdf)
 	plotdata_cb(sender, data)
 
 def redodm_cb(sender, data):
 	p0 = gdata['p0']
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
+	displayedname = gdata['displayedBurst']
 	result, burstdf = driftrate.processDMRange(
-		burstname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
+		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
 		df, dt, lowest_freq, p0=p0
 	)
 
 	df = gdata['resultsdf']
-	df[(df.index == burstname) & (df['DM'] == gdata['displayedDM'])] = burstdf
+	df[(df.index == displayedname) & (df['DM'] == gdata['displayedDM'])] = burstdf
 
 	gdata['resultsdf'] = df
 	gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
 	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
 
-	updateResultTable(gdata['burstdf'])
+	if gdata['multiburst']['enabled']:
+		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+		updateResultTable(subburstdf)
+	else:
+		updateResultTable(gdata['burstdf'])
 	plotdata_cb(sender, data)
 
 def exportresults_cb(sender, data):
 	results = gdata['results']
 	df = driftrate.exportresults(results)
+	df = driftlaw.computeModelDetails(df)
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
@@ -466,7 +510,8 @@ def displaydm_cb(sender, data):
 			newdmidx = 0
 	elif sender == 'PrevDM':
 		newdmidx = dmidx - 1
-	gdata['displayedDM'] = dmlist[newdmidx]
+
+	gdata['displayedDM'] = dmlist[newdmidx % len(dmlist)]
 	dpg.set_value('dmdisplayed', str(round(gdata['displayedDM'], getscale(gdata['displayedDM']))))
 
 	df = gdata['burstdf'].set_index('DM')
@@ -529,6 +574,120 @@ def updatep0_cb(sender, data):
 			p0.append(val)
 	gdata['p0'] = p0
 	plotdata_cb(sender, data)
+
+def enablesplitting_cb(sender, data):
+	gdata['multiburst']['enabled'] = dpg.get_value(sender)
+	# {'kwargs': ['enabled'], 'items': items}
+	items = data['items'].copy()
+	items.remove('AddRegionBtn')
+	toggle_config(sender, {'kwargs': ['enabled'], 'items': ['AddRegionBtn']})
+	for regid in range(1, gdata['multiburst']['numregions']):
+		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
+			itemsid = list(map(lambda item: item+'{}'.format(regid), items))
+			toggle_config(sender, {'kwargs': ['enabled'], 'items': itemsid})
+
+			if gdata['multiburst']['enabled']:
+				# draw
+				drawregion_cb([regid], None)
+			else:
+				seriesname = 'Region{}Series'.format(regid)
+				[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+
+def addregion_cb(sender, data):
+	regionSelector()
+	drawregion_cb([gdata['multiburst']['numregions']-1], None)
+
+def removeregion_cb(sender, data):
+	regid = sender[-1]
+	dpg.delete_item('RegionSelector{}'.format(regid))
+	seriesname = 'Region{}Series'.format(regid)
+	[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+
+colors = [
+	(0, 255, 0),
+	(255, 0, 0),
+	(0, 0, 255),
+	(255, 255, 0),
+	(255, 0, 255),
+	(0, 255, 255)
+]
+def drawregion_cb(sender, data):
+	regid = sender[-1]
+	region = dpg.get_value('Region{}'.format(regid))
+	regiontype = dpg.get_value('RegionType{}'.format(regid))
+
+	if region[1] < region[0]:
+		region.sort()
+		dpg.set_value('Region{}'.format(regid), region)
+
+	seriesname = 'Region{}Series'.format(regid)
+	for plot in ['WaterfallPlot', 'TimeSeriesPlot']:
+		dpg.delete_series(plot, seriesname)
+		dpg.add_vline_series(plot, seriesname, region,
+			update_bounds=False,
+			weight=1.5,
+			color=colors[(int(regid)-1) % len(colors)]
+		)
+
+def regionSelector():
+	regid = gdata['multiburst']['numregions']
+	before = "AddRegionBtn" if regid > 1 else ""
+	enabled = gdata['multiburst']['enabled']
+	if 'wfall' in gdata:
+		maxval = cropwfall(gdata['wfall']).shape[1]
+	else:
+		maxval = 100
+
+	with dpg.group('RegionSelector{}'.format(regid), horizontal=True, parent='SplittingSection',
+		before=before):
+		dpg.add_drag_int2('Region{}'.format(regid),
+			label='',
+			width=280,
+			enabled=enabled,
+			max_value=maxval,
+			default_value=[0, 25],
+			callback=drawregion_cb
+		)
+		helpmarker("Ctrl+click to edit")
+		dpg.add_radio_button('RegionType{}'.format(regid), items=["Background", "Burst"],
+			horizontal=True,
+			callback=drawregion_cb,
+			enabled=enabled
+		)
+		dpg.add_button('RemoveRegionBtn{}'.format(regid), label='X', enabled=enabled, callback=removeregion_cb)
+	gdata['multiburst']['numregions'] += 1
+
+def getSubbursts():
+	if not gdata['multiburst']['enabled']:
+		return []
+
+	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
+	background = None
+	subbursts  = []
+	for regid in range(1, gdata['multiburst']['numregions']):
+		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
+			regionname = 'Region{}'.format(regid)
+			typename = 'RegionType{}'.format(regid)
+			region = dpg.get_value(regionname)
+			regiontype =  dpg.get_value(typename)
+			if regiontype == 0:   # Background
+				background = wfall_cr[:, region[0]:region[1]]
+			elif regiontype == 1: # Burst
+				subburst = wfall_cr[:, region[0]:region[1]]
+				subbursts.append(subburst)
+
+	if background is None:
+		error_log_cb("getSubbursts", "Please specify a background region")
+		raise "Please specify a background region"
+
+	# pad with background
+	# for subburst in subbursts:
+	subburstsobj = {}
+	for subburst, suffix in zip(subbursts, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']):
+		subburst = np.concatenate((background, subburst, background), axis=1)
+		subname = burstname +'_'+ suffix
+		subburstsobj[subname] = subburst
+	return subburstsobj
 
 def helpmarker(message):
 	dpg.add_same_line()
@@ -598,12 +757,22 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 			dpg.add_same_line()
 			dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
 
-	with dpg.collapsing_header('SlopeSection', label="3. Sub-burst Slope Measurements", default_open=True):
+	with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
+		items = ['Region', 'RegionType', 'RemoveRegionBtn', 'AddRegionBtn']
+		dpg.add_checkbox('MultiBurstBox', label='Are there multiple bursts in this waterfall?',
+			default_value=False, enabled=True,
+			callback=enablesplitting_cb,
+			callback_data={'kwargs': ['enabled'], 'items': items}
+		)
+		regionSelector()
+		dpg.add_button('AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
+
+	with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
 		dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 		dpg.add_same_line()
 		dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
 		dpg.add_button('DeleteBurstBtn',
-			label="Delete this bursts's results",
+			label="Delete this burst's results",
 			callback=deleteresults_cb,
 			callback_data='burst',
 			enabled=False
