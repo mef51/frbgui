@@ -32,7 +32,6 @@ gdata = {
 						},
 	'results'        : [],                   # avoid using, might remove in favor of resultsdf
 	'resultsdf'      : None,
-	'popt'           : None,                 # currently displayed 2d fit
 	'p0'             : None,                  # currently displayed initial fit guess
 	'displayedBurst' : ''                    # name of displayed burst
 }
@@ -97,6 +96,7 @@ def loaddata_cb(sender, data):
 			gdata['displayedDM'] = loaded['DM']
 			gdata['burstDM']     = loaded['DM']
 			dpg.set_value('dmdisplayed', str(gdata['displayedDM']))
+			dpg.set_value('burstdisplayed', burstname)
 			if dpg.get_value('dmrange')[0] == 0:
 				dmrange = [gdata['burstDM']*0.99, gdata['burstDM']*1.01]
 				dpg.set_value('dmrange', dmrange)
@@ -124,10 +124,8 @@ def loaddata_cb(sender, data):
 			if hasResults:
 				gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
 				updateResultTable(gdata['burstdf'])
-				gdata['popt'] = gdata['burstdf'].set_index('DM').loc[gdata['displayedDM']][5:11]
 			else:
 				updateResultTable(pd.DataFrame())
-				gdata['popt'] = None
 				gdata['p0'] = None
 				dpg.set_value('EnableP0Box', False)
 				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
@@ -197,30 +195,27 @@ def plotdata_cb(sender, data):
 	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
 	ddm = gdata['displayedDM'] - gdata['burstDM']
-	subpopt = None
 	burstname = dpg.get_value('burstname').replace(',', '')
-	if ('newdmidx' in data) and gdata['multiburst']['enabled']:
-		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
-		subname = subburstdf.index[data['newdmidx']]
-		if subname == burstname:
-			gdata['displayedBurst'] = burstname
-			wfall = gdata['wfall']
-			wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
-			wfall_dd_cr = cropwfall(wfall_dd)
-		else:
-			gdata['displayedBurst'] = subname
-			subbursts = getSubbursts()
-			subburst = subbursts[subname]
-			wfall_cr = subburst
-			wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
 
-			# gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
-			subpopt = subburstdf.loc[subname].set_index('DM').loc[gdata['displayedDM']][5:11]
-	else:
+	popt = None
+	if gdata['resultsdf'] is not None:
+		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+		popt = subburstdf.loc[burstname].set_index('DM').loc[gdata['displayedDM']][5:11]
+
+	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
+	if ('resultidx' not in data) or (subname == burstname):
 		gdata['displayedBurst'] = burstname
-		wfall       = gdata['wfall']
+		wfall = gdata['wfall']
 		wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
 		wfall_dd_cr = cropwfall(wfall_dd)
+	elif ('resultidx' in data) and (subname != burstname):
+		gdata['displayedBurst'] = subname
+		subbursts = getSubbursts()
+		subburst = subbursts[subname]
+		wfall_cr = subburst
+		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
+		popt = subburstdf.loc[subname].set_index('DM').loc[gdata['displayedDM']][5:11]
+
 	tseries = np.nanmean(wfall_dd_cr, axis=0)
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
@@ -267,7 +262,6 @@ def plotdata_cb(sender, data):
 		pass
 
 	p0 = gdata['p0'] if dpg.get_value('EnableP0Box') else None
-	popt = gdata['popt'] if subpopt is None else subpopt
 	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0)
 	dpg.add_texture("corr2dtexture", corr2dtexture, txwidth, txheight, format=dpg.mvTEX_RGB_INT)
 	dpg.add_image_series("Corr2dPlot", "Corr2d", "corr2dtexture",
@@ -362,8 +356,8 @@ def resulttable_cb(sender, data):
 	newsel = coords[0].copy()
 	for coord in coords:
 		dpg.set_table_selection('Resulttable', coord[0], coord[1], False)
-
-	displaydm_cb('User', {'newdmidx': newsel[0]})
+	print("resultidx = ", newsel[0])
+	displayresult_cb('User', {'resultidx': newsel[0]})
 
 def updateResultTable(resultsdf):
 	dpg.delete_item('Resulttable')
@@ -408,6 +402,7 @@ def dmrange_cb(sender, data):
 	gdata['trialDMs'] = np.linspace(dmrange[0], dmrange[1], num=numtrials)
 
 def getCurrentBurst():
+	""" Return the currently loaded waterfall at its burst DM """
 	burstname = dpg.get_value('burstname').replace(',', '')
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
@@ -445,7 +440,6 @@ def slope_cb(sender, data):
 	print(gdata['resultsdf'])
 
 	burstdf = burstdf.loc[burstname]
-	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
 	gdata['burstdf'] = burstdf
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
@@ -464,31 +458,42 @@ def slope_cb(sender, data):
 
 def redodm_cb(sender, data):
 	p0 = gdata['p0']
+	useForAll = dpg.get_value('P0AllDMsBox')
+
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 	displayedname = gdata['displayedBurst']
+	if gdata['multiburst']['enabled'] and displayedname != burstname:
+		subbursts = getSubbursts()
+		wfall_cr = subbursts[displayedname]
+
 	result, burstdf = driftrate.processDMRange(
 		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
 		df, dt, lowest_freq, p0=p0
 	)
-
+	print('redoing ', displayedname, gdata['displayedDM'])
 	df = gdata['resultsdf']
 	df[(df.index == displayedname) & (df['DM'] == gdata['displayedDM'])] = burstdf
 
 	gdata['resultsdf'] = df
 	gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
-	gdata['popt'] = burstdf.set_index('DM').loc[gdata['displayedDM']][5:11]
 
 	if gdata['multiburst']['enabled']:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		updateResultTable(subburstdf)
+		subburstdf = subburstdf.reset_index()
+		dispdm = gdata['displayedDM']
+		resultidx = subburstdf[(subburstdf.name == displayedname) & (subburstdf.DM == dispdm)].index[0]
+		if data is None:
+			data = {}
+		data['resultidx'] = resultidx
+
 	else:
 		updateResultTable(gdata['burstdf'])
 	plotdata_cb(sender, data)
 
 def exportresults_cb(sender, data):
-	results = gdata['results']
-	df = driftrate.exportresults(results)
-	df = driftlaw.computeModelDetails(df)
+	resultsdf = gdata['resultsdf']
+	df = driftlaw.computeModelDetails(resultsdf)
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
@@ -496,27 +501,34 @@ def exportresults_cb(sender, data):
 	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
 	dpg.configure_item('ExportResultText', show=True)
 
-def displaydm_cb(sender, data):
+def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
 	trialDMs = np.append(gdata['trialDMs'], burstDM)
 	dmlist = list(trialDMs)
-	dmidx = dmlist.index(gdata['displayedDM'])
+
+	burstname = dpg.get_value('burstname').replace(',', '')
+	subname = gdata['displayedBurst']
+	dispdm = gdata['displayedDM']
+	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
+	resultidx = subburstdf[(subburstdf.name == subname) & (subburstdf.DM == dispdm)].index[0]
+	subburstdf = subburstdf.set_index('name')
 
 	if sender == 'User':
-		newdmidx = data['newdmidx']
+		resultidx = data['resultidx']
 	elif sender == 'NextDM':
-		newdmidx = dmidx + 1
-		if not (newdmidx < len(dmlist)):
-			newdmidx = 0
+		resultidx = resultidx + 1
+		if not (resultidx < len(subburstdf)):
+			resultidx = 0
 	elif sender == 'PrevDM':
-		newdmidx = dmidx - 1
+		resultidx = resultidx - 1
 
-	gdata['displayedDM'] = dmlist[newdmidx % len(dmlist)]
+	if data is None:
+		data = {}
+	data['resultidx'] = resultidx
+	subname = subburstdf.index[resultidx]
+	gdata['displayedDM'] = dmlist[resultidx % len(dmlist)]
 	dpg.set_value('dmdisplayed', str(round(gdata['displayedDM'], getscale(gdata['displayedDM']))))
-
-	df = gdata['burstdf'].set_index('DM')
-	df = df.set_index(df.index.astype('float'))
-	gdata['popt'] = df.loc[gdata['displayedDM']][5:11]
+	dpg.set_value('burstdisplayed', subname)
 	plotdata_cb(sender, data)
 
 def confirmpopup(data, cb):
@@ -546,9 +558,12 @@ def deleteresults_cb(sender, data):
 def initializeP0Group():
 	params = ['amplitude', 'xo', 'yo', 'sigmax', 'sigmay', 'angle']
 	p0 = []
-	for burst, row in gdata['burstdf'].iterrows():
-		if row['amplitude'] > 0:
-			p0 = [row[param] for param in params]
+
+	burstname = dpg.get_value('burstname').replace(',', '')
+	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+	bestrow = subburstdf[subburstdf.red_chisq == subburstdf.red_chisq.min()]
+	p0 = [bestrow[param] for param in params]
+
 	gdata['p0'] = p0
 	dpg.set_value("AmplitudeDrag", p0[0])
 	dpg.set_value("AngleDrag", p0[5])
@@ -566,6 +581,17 @@ def enablep0_cb(sender, data):
 
 def updatep0_cb(sender, data):
 	p0 = []
+
+	# get resultidx
+	subname, dispdm = gdata['displayedBurst'], gdata['displayedDM']
+	burstname = dpg.get_value('burstname').replace(',', '')
+	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
+	resultidx = subburstdf[(subburstdf.name == subname) & (subburstdf.DM == dispdm)].index[0]
+	if gdata['multiburst']['enabled']:
+		if data is None:
+			data = {}
+		data['resultidx'] = resultidx
+
 	for item in ['AmplitudeDrag', 'x0y0Drag', 'SigmaXYDrag', 'AngleDrag']:
 		val = dpg.get_value(item)
 		if type(val) == list:
@@ -737,7 +763,7 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		helpmarker('Double click to edit')
 		dpg.add_input_int('numtrials', label='# of Trial DMs', default_value=10, callback=dmrange_cb)
 
-	with dpg.collapsing_header("2. Burst Cleanup", default_open=False):
+	with dpg.collapsing_header("2. Waterfall Cleanup", default_open=False):
 		with dpg.tree_node('Masking', default_open=True):
 			dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
 			dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
@@ -788,12 +814,14 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
 		dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
 		with dpg.group("DMselector", horizontal=True):
+			dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
+				callback=displayresult_cb)
+			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
+				callback=displayresult_cb)
+			dpg.add_text("Burst Displayed: ")
+			dpg.add_text("burstdisplayed", default_value=str(dpg.get_value('burstname')))
 			dpg.add_text("DM Displayed (pc/cm^3): ")
 			dpg.add_text("dmdisplayed", default_value=str(dpg.get_value('DM')))
-			dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
-				callback=displaydm_cb)
-			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
-				callback=displaydm_cb)
 			helpmarker('Selecting a row also displays that DM')
 
 		with dpg.group('P0Group'):
@@ -887,7 +915,7 @@ importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
 
 ## dm range defaults
 dpg.set_value('dmrange', [515.2, 525.5])
-dpg.set_value('numtrials', 2)
+dpg.set_value('numtrials', 20)
 dmrange_cb('user', None)
 
 dpg.start_dearpygui(primary_window='main')
