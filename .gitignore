@@ -2,7 +2,6 @@
 *.ASCII
 *.msgpack
 *.npy
-*.npz
 *.fits
 *.xml
 *.md5
