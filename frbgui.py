@@ -28,12 +28,13 @@ gdata = {
 	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\luo2020\\180813_ar_file\\ar_file\\converted',
 	'multiburst'     : {                     # store all multiburst metadata
 						'numregions': 1,
-						'enabled': False,
+						'enabled'   : False,
+						'regions'   : {}
 						},
 	'results'        : [],                   # avoid using, might remove in favor of resultsdf
 	'resultsdf'      : None,
 	'p0'             : None,                  # currently displayed initial fit guess
-	'displayedBurst' : ''                    # name of displayed burst
+	'displayedBurst' : '',                    # name of displayed burst
 }
 
 def getscale(m, M=-1): # used for dynamically rounding numbers for display
@@ -135,6 +136,24 @@ def loaddata_cb(sender, data):
 		for regid in range(1, gdata['multiburst']['numregions']):
 			if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 				dpg.configure_item('Region{}'.format(regid), max_value=cropwfall(wfall).shape[1])
+		if burstname in gdata['multiburst']['regions']:
+			if not gdata['multiburst']['enabled']:
+				dpg.set_value('MultiBurstBox', True)
+				enablesplitting_cb('MultiBurstBox', {'kwargs': ['enabled']})
+			regions = gdata['multiburst']['regions'][burstname]
+			numregions = len(regions.keys())
+			while numregions > gdata['multiburst']['numregions']-1:
+				addregion_cb(sender, data)
+			while numregions < gdata['multiburst']['numregions']-1:
+				removeregion_cb([gdata['multiburst']['numregions']-1], data)
+			# set the elements based on gdata['regions']
+			for regid, name in enumerate(regions):
+				regid += 1 # off by one
+				regiontype = 0 if 'background' in name else 1 # 0 is background, 1 is burst
+				dpg.set_value('Region{}'.format(regid), regions[name])
+				dpg.set_value('RegionType{}'.format(regid), regiontype)
+				drawregion_cb([regid], None)
+
 
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
@@ -200,7 +219,8 @@ def plotdata_cb(sender, data):
 	popt = None
 	if gdata['resultsdf'] is not None:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
-		popt = subburstdf.loc[burstname].set_index('DM').loc[gdata['displayedDM']][5:11]
+		if not subburstdf.empty:
+			popt = subburstdf.loc[burstname].set_index('DM').loc[gdata['displayedDM']][5:11]
 
 	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
 	if ('resultidx' not in data) or (subname == burstname):
@@ -486,10 +506,23 @@ def redodm_cb(sender, data):
 		if data is None:
 			data = {}
 		data['resultidx'] = resultidx
-
 	else:
 		updateResultTable(gdata['burstdf'])
 	plotdata_cb(sender, data)
+
+def getAllRegions():
+	ret = {}
+	suffixes = itertools.cycle(subburst_suffixes)
+	if gdata['multiburst']['enabled']:
+		for regid in range(1, gdata['multiburst']['numregions']):
+			region = dpg.get_value('Region{}'.format(regid))
+			regiontype = dpg.get_value('RegionType{}'.format(regid))
+			if regiontype == 1: # burst
+				suffix = next(suffixes)
+				ret[suffix] = region
+			else:
+				ret['background'] = region
+	return ret
 
 def exportresults_cb(sender, data):
 	resultsdf = gdata['resultsdf']
@@ -497,7 +530,7 @@ def exportresults_cb(sender, data):
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
-	df.to_csv(filename)
+	# df.to_csv(filename)
 	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
 	dpg.configure_item('ExportResultText', show=True)
 
@@ -602,22 +635,41 @@ def updatep0_cb(sender, data):
 	plotdata_cb(sender, data)
 
 def enablesplitting_cb(sender, data):
+	items = ['Region', 'RegionType', 'RemoveRegionBtn', 'AddRegionBtn', 'ExportRegionBtn']
 	gdata['multiburst']['enabled'] = dpg.get_value(sender)
-	# {'kwargs': ['enabled'], 'items': items}
-	items = data['items'].copy()
+	items = items.copy()
 	items.remove('AddRegionBtn')
+	items.remove('ExportRegionBtn')
 	toggle_config(sender, {'kwargs': ['enabled'], 'items': ['AddRegionBtn']})
+	toggle_config(sender, {'kwargs': ['enabled'], 'items': ['ExportRegionBtn']})
 	for regid in range(1, gdata['multiburst']['numregions']):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			itemsid = list(map(lambda item: item+'{}'.format(regid), items))
 			toggle_config(sender, {'kwargs': ['enabled'], 'items': itemsid})
 
 			if gdata['multiburst']['enabled']:
-				# draw
 				drawregion_cb([regid], None)
 			else:
 				seriesname = 'Region{}Series'.format(regid)
 				[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+
+def exportregions_cb(sender, data):
+	regions = getAllRegions()
+	saveobj = {gdata['displayedBurst']: regions}
+	filename = 'burstregions_{}.npy'.format('luo')
+	if os.path.exists(filename):
+		loadobj = np.load(filename, allow_pickle=True)[0]
+		loadobj[gdata['displayedBurst']] = regions
+		saveobj = loadobj
+	np.save(filename, [saveobj])
+	print(saveobj)
+	print('Saved', filename)
+
+def importregions_cb(sender, data):
+	filename = data
+	if os.path.exists(filename):
+		loadobj = np.load(filename, allow_pickle=True)[0]
+		gdata['multiburst']['regions'] = loadobj
 
 def addregion_cb(sender, data):
 	regionSelector()
@@ -628,6 +680,7 @@ def removeregion_cb(sender, data):
 	dpg.delete_item('RegionSelector{}'.format(regid))
 	seriesname = 'Region{}Series'.format(regid)
 	[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+	gdata['multiburst']['numregions'] -= 1
 
 colors = [
 	(0, 255, 0),
@@ -683,6 +736,7 @@ def regionSelector():
 		dpg.add_button('RemoveRegionBtn{}'.format(regid), label='X', enabled=enabled, callback=removeregion_cb)
 	gdata['multiburst']['numregions'] += 1
 
+subburst_suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']
 def getSubbursts():
 	if not gdata['multiburst']['enabled']:
 		return []
@@ -709,7 +763,7 @@ def getSubbursts():
 	# pad with background
 	# for subburst in subbursts:
 	subburstsobj = {}
-	for subburst, suffix in zip(subbursts, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']):
+	for subburst, suffix in zip(subbursts, subburst_suffixes):
 		subburst = np.concatenate((background, subburst, background), axis=1)
 		subname = burstname +'_'+ suffix
 		subburstsobj[subname] = subburst
@@ -784,14 +838,15 @@ with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 			dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
 
 	with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
-		items = ['Region', 'RegionType', 'RemoveRegionBtn', 'AddRegionBtn']
 		dpg.add_checkbox('MultiBurstBox', label='Are there multiple bursts in this waterfall?',
 			default_value=False, enabled=True,
 			callback=enablesplitting_cb,
-			callback_data={'kwargs': ['enabled'], 'items': items}
+			callback_data={'kwargs': ['enabled']}
 		)
 		regionSelector()
 		dpg.add_button('AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
+		dpg.add_same_line()
+		dpg.add_button('ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
 
 	with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
 		dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
@@ -912,10 +967,11 @@ dpg.set_value('Filter', gdata['globfilter'])
 directory_cb('user', [gdata['datadir']]) # default directory
 burstselect_cb('burstselect', None)
 importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
+importregions_cb('user', 'burstregions_{}.npy'.format('luo'))
 
 ## dm range defaults
 dpg.set_value('dmrange', [515.2, 525.5])
-dpg.set_value('numtrials', 20)
+dpg.set_value('numtrials', 10)
 dmrange_cb('user', None)
 
 dpg.start_dearpygui(primary_window='main')

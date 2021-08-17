@@ -216,3 +216,12 @@ meeting notes:
 ## july 25-26
 * add burst splitting for frbs with multiple sub-bursts
 * redo dm and p0 for sub-bursts is buggy
+
+## aug 14
+* frb180813:
+	* snr too low: bursts 2, 3, 4, 6,
+	* signal likely cutoff: 8
+	* worth retrying: 9c, 10b
+
+## aug 16
+* add burst region importing and exporting
