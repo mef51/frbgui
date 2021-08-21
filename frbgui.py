@@ -31,7 +31,6 @@ gdata = {
 						'enabled'   : False,
 						'regions'   : {}
 						},
-	'results'        : [],                   # avoid using, might remove in favor of resultsdf
 	'resultsdf'      : None,
 	'p0'             : None,                  # currently displayed initial fit guess
 	'displayedBurst' : '',                    # name of displayed burst
@@ -185,7 +184,7 @@ def getcorr2dtexture(corr, popt=None, p0=None):
 
 	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray')
 	plt.clim(0, np.max(corr)/20)
-
+	print(popt)
 	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeFitmap(popt, corr)
 		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
@@ -432,13 +431,18 @@ def getCurrentBurst():
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
 def slope_cb(sender, data):
-	dpg.set_value('SlopeStatus', 'Status: Calculating...')
-
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 
-	trialDMs = np.append(gdata['trialDMs'], burstDM)
-	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq)
-	gdata['results'] += results
+	if data is not None:
+		dpg.set_value('SlopeStatus', 'Status: Doing second pass...')
+		p0 = data['p0']
+		trialDMs = data['badfitDMs']
+	else:
+		dpg.set_value('SlopeStatus', 'Status: Calculating...')
+		p0 = []
+		trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
+
+	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq, p0)
 
 	if gdata['multiburst']['enabled']:
 		subbursts = getSubbursts()
@@ -449,10 +453,22 @@ def slope_cb(sender, data):
 			subresults.append(ret)
 			subdf = subdf.append(retdf)
 
-		gdata['results'] += subresults
 		burstdf = burstdf.append(subdf)
 		subburstdf = burstdf.copy()
 
+	# Do a second pass using the best p0 just found
+	# TODO: only repeat bad fits
+	p0 = getOptimalFit(burstdf)
+	if data is None:
+		# ensure p0 is in center of autocorr
+		if not (wfall_cr.shape[1]*2*0.9 <= p0[1] <= wfall_cr.shape[1]*2*1.1):
+			p0[1] = wfall_cr.shape[1]
+		if not (wfall_cr.shape[0]*2*0.9 <= p0[2] <= wfall_cr.shape[0]*2*1.1):
+			p0[2] = wfall_cr.shape[0]
+		# todo: find bad dms
+		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
+
+	# Save results
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
@@ -463,7 +479,7 @@ def slope_cb(sender, data):
 	gdata['burstdf'] = burstdf
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
-	dpg.set_value('NumMeasurementsText', "# of Measurements: {}".format(len(burstdf)))
+	dpg.set_value('NumMeasurementsText', "# of Measurements for this burst: {}".format(len(burstdf)))
 	dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	dpg.configure_item('PrevDM', enabled=True)
 	dpg.configure_item('NextDM', enabled=True)
@@ -530,13 +546,13 @@ def exportresults_cb(sender, data):
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
-	# df.to_csv(filename)
+	df.to_csv(filename)
 	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
 	dpg.configure_item('ExportResultText', show=True)
 
 def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
-	trialDMs = np.append(gdata['trialDMs'], burstDM)
+	trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
 	dmlist = list(trialDMs)
 
 	burstname = dpg.get_value('burstname').replace(',', '')
@@ -588,14 +604,19 @@ def deleteresults_cb(sender, data):
 
 	print(sender, data)
 
-def initializeP0Group():
+def getOptimalFit(df):
 	params = ['amplitude', 'xo', 'yo', 'sigmax', 'sigmay', 'angle']
-	p0 = []
+	bestrow = df[df.red_chisq == df.red_chisq.min()]
+	if len(bestrow) > 1:
+		bestrow = bestrow.head(1)
+	p0 = [bestrow[param] for param in params]
+	return p0
 
+def initializeP0Group():
+	p0 = []
 	burstname = dpg.get_value('burstname').replace(',', '')
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
-	bestrow = subburstdf[subburstdf.red_chisq == subburstdf.red_chisq.min()]
-	p0 = [bestrow[param] for param in params]
+	p0 = getOptimalFit(subburstdf)
 
 	gdata['p0'] = p0
 	dpg.set_value("AmplitudeDrag", p0[0])
@@ -607,6 +628,7 @@ def initializeP0Group():
 		if type(val) == list:
 			val = val[0]
 		dpg.configure_item(item, speed=1/10**getscale(val), format='%.{}f'.format(getscale(val)+1))
+	return p0
 
 def enablep0_cb(sender, data):
 	toggle_config(sender, data)
@@ -966,11 +988,11 @@ dpg.set_main_window_title("FRB Repeaters")
 dpg.set_value('Filter', gdata['globfilter'])
 directory_cb('user', [gdata['datadir']]) # default directory
 burstselect_cb('burstselect', None)
-importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks.npy'])
+importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks_aug18.npy'])
 importregions_cb('user', 'burstregions_{}.npy'.format('luo'))
 
 ## dm range defaults
-dpg.set_value('dmrange', [515.2, 525.5])
+dpg.set_value('dmrange', [516.3, 522.7])
 dpg.set_value('numtrials', 10)
 dmrange_cb('user', None)
 

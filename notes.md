@@ -218,10 +218,19 @@ meeting notes:
 * redo dm and p0 for sub-bursts is buggy
 
 ## aug 14
-* frb180813:
-	* snr too low: bursts 2, 3, 4, 6,
-	* signal likely cutoff: 8
-	* worth retrying: 9c, 10b
+* first pass at getting measurements, fixing some bugs
 
 ## aug 16
 * add burst region importing and exporting
+
+## aug 17
+* revising dm range for frb180301 to exlude extremes when burst is very low snr: 516.3 - 522.7 (521.1)
+
+## aug 18
+* frb180813:
+	* snr too low: bursts 2, 3, 4, 6, 14, 15
+	* signal likely cutoff: 8
+	* worth retrying: 9c, 10b
+* new bugs:
+	* result table for multiburst doesnt show subburst results after navigating to different burst
+	* cant disable p0 interface group on single burst after performing multiburst (sometimes.. do burst 9 and then burst 1 to reproduce)
