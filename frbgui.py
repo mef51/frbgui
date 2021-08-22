@@ -333,7 +333,7 @@ def exportmask_cb(sender, data):
 	print(gdata['masks'])
 
 def importmask_cb(sender, data):
-	filename = data[1]
+	filename = data
 	log_cb(sender, 'mask selected: {}'.format(data))
 	if filename.split('.')[-1] == 'npy':
 		masks = np.load(filename, allow_pickle=True)[0]
@@ -801,198 +801,214 @@ def toggle_config(sender, data):
 	for item in data['items']:
 		dpg.configure_item(item, **config_dict)
 
-### Analysis window
-with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
-	with dpg.collapsing_header("1. Data", default_open=True):
-		dpg.add_button("Select Directory...", callback=lambda s, d: dpg.select_directory_dialog(directory_cb))
-		dpg.add_text("Dirtext", default_value="Selected: (no directory selected)")
-		dpg.add_text("Filter:"); dpg.add_same_line()
-		dpg.add_input_text("Filter", label='', hint="eg. *.npy", callback=filter_cb, enabled=False)
-		dpg.add_same_line();
-		dpg.add_button('Clear filter', callback=clearfilter_cb, enabled=False)
+def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
+		maskfile=None,
+		regionfile=None,
+		dmrange=None,
+		numtrials=10,
+		winwidth=1700,
+		winheight=850,
+	):
+	with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
+		with dpg.collapsing_header("1. Data", default_open=True):
+			dpg.add_button("Select Directory...", callback=lambda s, d: dpg.select_directory_dialog(directory_cb))
+			dpg.add_text("Dirtext", default_value="Selected: (no directory selected)")
+			dpg.add_text("Filter:"); dpg.add_same_line()
+			dpg.add_input_text("Filter", label='', hint="eg. *.npy", callback=filter_cb, enabled=False)
+			dpg.add_same_line();
+			dpg.add_button('Clear filter', callback=clearfilter_cb, enabled=False)
 
-		dpg.add_text("Files found:")
-		dpg.add_listbox("burstselect", label='', items=[], num_items=10, width=520,
-						callback=burstselect_cb, tip="Select to load burst...")
+			dpg.add_text("Files found:")
+			dpg.add_listbox("burstselect", label='', items=[], num_items=10, width=520,
+							callback=burstselect_cb, tip="Select to load burst...")
 
-		dpg.add_text("Burst Metadata:")
-		dpg.add_input_text('burstname', label='Burst Name')
-		dpg.add_input_float('DM', label='DM (pc/cm^3)')
-		dpg.add_input_float('dt', label='Time Resolution (ms)')
-		dpg.add_input_float('df', label='Freq Resolution (MHz)')
-		dpg.add_input_float('center_f', label='Center Frequency (MHz)')
-		dpg.add_input_float('bandwidth', label='Bandwidth (MHz)')
-		dpg.add_input_float('duration', label='Data Duration')
-		dpg.add_input_float('burstSN', label='Burst SNR')
-		dpg.add_input_text('telescope', label='Telescope')
-		## TODO: Use these units to populate the resolution inputs
-		dpg.add_input_text('freq_unit', label='Frequency Unit')
-		dpg.add_input_text('time_unit', label='Time Unit')
-		dpg.add_input_text('int_unit', label='Intensity Unit')
+			dpg.add_text("Burst Metadata:")
+			dpg.add_input_text('burstname', label='Burst Name')
+			dpg.add_input_float('DM', label='DM (pc/cm^3)')
+			dpg.add_input_float('dt', label='Time Resolution (ms)')
+			dpg.add_input_float('df', label='Freq Resolution (MHz)')
+			dpg.add_input_float('center_f', label='Center Frequency (MHz)')
+			dpg.add_input_float('bandwidth', label='Bandwidth (MHz)')
+			dpg.add_input_float('duration', label='Data Duration')
+			dpg.add_input_float('burstSN', label='Burst SNR')
+			dpg.add_input_text('telescope', label='Telescope')
+			## TODO: Use these units to populate the resolution inputs
+			dpg.add_input_text('freq_unit', label='Frequency Unit')
+			dpg.add_input_text('time_unit', label='Time Unit')
+			dpg.add_input_text('int_unit', label='Intensity Unit')
 
-		dpg.add_text('Dedispersion Range for all Bursts: ')
-		dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
-			color=[255, 0, 0], show=False)
-		dpg.add_drag_float2('dmrange', label='DM range (pc/cm^3)', callback=dmrange_cb,
-			min_value=0, max_value=0)
-		helpmarker('Double click to edit')
-		dpg.add_input_int('numtrials', label='# of Trial DMs', default_value=10, callback=dmrange_cb)
+			dpg.add_text('Dedispersion Range for all Bursts: ')
+			dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
+				color=[255, 0, 0], show=False)
+			dpg.add_drag_float2('dmrange', label='DM range (pc/cm^3)', callback=dmrange_cb,
+				min_value=0, max_value=0)
+			helpmarker('Double click to edit')
+			dpg.add_input_int('numtrials', label='# of Trial DMs', default_value=10, callback=dmrange_cb)
 
-	with dpg.collapsing_header("2. Waterfall Cleanup", default_open=False):
-		with dpg.tree_node('Masking', default_open=True):
-			dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
-			dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
+		with dpg.collapsing_header("2. Waterfall Cleanup", default_open=False):
+			with dpg.tree_node('Masking', default_open=True):
+				dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
+				dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
 
-			dpg.add_button('Export Masks', callback=exportmask_cb, enabled=True)
-			dpg.add_same_line()
-			dpg.add_button('Import Masks',
-				callback=lambda s, d: dpg.open_file_dialog(importmask_cb, extensions='.npy'),
-				enabled=True)
-
-			dpg.add_table('Masktable', [], height=50)
-
-		with dpg.tree_node('Downsampling', default_open=True):
-			dpg.add_text("Wfallshapelbl", default_value="Maximum Size: (no burst selected)")
-			dpg.add_text("Subfallshapelbl", default_value="Current Size: (no burst selected)")
-			dpg.add_input_int("dfreqinput", width=100, label="df", callback=subsample_cb, enabled=False)
-			dpg.add_same_line()
-			dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
-
-	with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
-		dpg.add_checkbox('MultiBurstBox', label='Are there multiple bursts in this waterfall?',
-			default_value=False, enabled=True,
-			callback=enablesplitting_cb,
-			callback_data={'kwargs': ['enabled']}
-		)
-		regionSelector()
-		dpg.add_button('AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
-		dpg.add_same_line()
-		dpg.add_button('ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
-
-	with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
-		dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
-		dpg.add_same_line()
-		dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
-		dpg.add_button('DeleteBurstBtn',
-			label="Delete this burst's results",
-			callback=deleteresults_cb,
-			callback_data='burst',
-			enabled=False
-		)
-		dpg.add_same_line()
-		dpg.add_button('DeleteAllBtn',
-			label="Delete ALL results",
-			callback=deleteresults_cb,
-			callback_data='all',
-			enabled=False
-		)
-
-		dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
-		dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
-		with dpg.group("DMselector", horizontal=True):
-			dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
-				callback=displayresult_cb)
-			dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
-				callback=displayresult_cb)
-			dpg.add_text("Burst Displayed: ")
-			dpg.add_text("burstdisplayed", default_value=str(dpg.get_value('burstname')))
-			dpg.add_text("DM Displayed (pc/cm^3): ")
-			dpg.add_text("dmdisplayed", default_value=str(dpg.get_value('DM')))
-			helpmarker('Selecting a row also displays that DM')
-
-		with dpg.group('P0Group'):
-			with dpg.tree_node('Fit Initial Guess', default_open=False):
-				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
-				dpg.add_checkbox("EnableP0Box", label='Use Initial Guess', default_value=False,
-					enabled=False,
-					callback=enablep0_cb,
-					callback_data={'kwargs': ['enabled'], 'items': items}
-				)
+				dpg.add_button('Export Masks', callback=exportmask_cb, enabled=True)
 				dpg.add_same_line()
-				dpg.add_checkbox('P0AllDMsBox', label='Use for all DMs', default_value=False, enabled=False)
-				dpg.add_drag_float("AmplitudeDrag", label="Amplitude", enabled=False,
-					min_value=0, max_value=0, callback=updatep0_cb)
-				dpg.add_drag_float("AngleDrag", label="Angle", enabled=False,
-					min_value=0, max_value=0, callback=updatep0_cb)
-				dpg.add_drag_float2("x0y0Drag", label="x0, y0", enabled=False,
-					min_value=0, max_value=0, callback=updatep0_cb)
-				dpg.add_drag_float2("SigmaXYDrag", label="sigmax, sigmay", enabled=False,
-					min_value=0, max_value=0, callback=updatep0_cb)
-				dpg.add_button("RedoBtn", label="Redo this DM", callback=redodm_cb, enabled=False)
+				dpg.add_button('Import Masks',
+					callback=lambda s, d: dpg.open_file_dialog(importmask_cb, extensions='.npy'),
+					enabled=True)
 
-		with dpg.group('ResultsGroup'):
-			dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
+				dpg.add_table('Masktable', [], height=50)
 
-		dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
-		dpg.add_button('ExportResultsBtn', label="Export Full Results", callback=exportresults_cb, enabled=False)
+			with dpg.tree_node('Downsampling', default_open=True):
+				dpg.add_text("Wfallshapelbl", default_value="Maximum Size: (no burst selected)")
+				dpg.add_text("Subfallshapelbl", default_value="Current Size: (no burst selected)")
+				dpg.add_input_int("dfreqinput", width=100, label="df", callback=subsample_cb, enabled=False)
+				dpg.add_same_line()
+				dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
+
+		with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
+			dpg.add_checkbox('MultiBurstBox', label='Are there multiple bursts in this waterfall?',
+				default_value=False, enabled=True,
+				callback=enablesplitting_cb,
+				callback_data={'kwargs': ['enabled']}
+			)
+			regionSelector()
+			dpg.add_button('AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
+			dpg.add_same_line()
+			dpg.add_button('ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
+
+		with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
+			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
+			dpg.add_same_line()
+			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
+			dpg.add_button('DeleteBurstBtn',
+				label="Delete this burst's results",
+				callback=deleteresults_cb,
+				callback_data='burst',
+				enabled=False
+			)
+			dpg.add_same_line()
+			dpg.add_button('DeleteAllBtn',
+				label="Delete ALL results",
+				callback=deleteresults_cb,
+				callback_data='all',
+				enabled=False
+			)
+
+			dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
+			dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
+			with dpg.group("DMselector", horizontal=True):
+				dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
+					callback=displayresult_cb)
+				dpg.add_button("NextDM", arrow=True, direction=dpg.mvDir_Right, enabled=False,
+					callback=displayresult_cb)
+				dpg.add_text("Burst Displayed: ")
+				dpg.add_text("burstdisplayed", default_value=str(dpg.get_value('burstname')))
+				dpg.add_text("DM Displayed (pc/cm^3): ")
+				dpg.add_text("dmdisplayed", default_value=str(dpg.get_value('DM')))
+				helpmarker('Selecting a row also displays that DM')
+
+			with dpg.group('P0Group'):
+				with dpg.tree_node('Fit Initial Guess', default_open=False):
+					items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
+					dpg.add_checkbox("EnableP0Box", label='Use Initial Guess', default_value=False,
+						enabled=False,
+						callback=enablep0_cb,
+						callback_data={'kwargs': ['enabled'], 'items': items}
+					)
+					dpg.add_same_line()
+					dpg.add_checkbox('P0AllDMsBox', label='Use for all DMs', default_value=False, enabled=False)
+					dpg.add_drag_float("AmplitudeDrag", label="Amplitude", enabled=False,
+						min_value=0, max_value=0, callback=updatep0_cb)
+					dpg.add_drag_float("AngleDrag", label="Angle", enabled=False,
+						min_value=0, max_value=0, callback=updatep0_cb)
+					dpg.add_drag_float2("x0y0Drag", label="x0, y0", enabled=False,
+						min_value=0, max_value=0, callback=updatep0_cb)
+					dpg.add_drag_float2("SigmaXYDrag", label="sigmax, sigmay", enabled=False,
+						min_value=0, max_value=0, callback=updatep0_cb)
+					dpg.add_button("RedoBtn", label="Redo this DM", callback=redodm_cb, enabled=False)
+
+			with dpg.group('ResultsGroup'):
+				dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
+
+			dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
+			dpg.add_button('ExportResultsBtn', label="Export Full Results", callback=exportresults_cb, enabled=False)
+			dpg.add_same_line()
+			dpg.add_text('ExportResultText', default_value='', show=False, color=(0, 255, 0))
+
+	### Plotting window
+	with dpg.window("FRB Plots", width=1035, height=745, x_pos=600, y_pos=30):
+		dpg.set_mouse_click_callback(mousepos_cb)
+		dpg.add_slider_float2("wfallscale", label='Wfall Min/Max', enabled=False,
+							  width=400, callback=plotdata_cb,
+							  callback_data=lambda: {'scale': dpg.get_value('wfallscale')})
 		dpg.add_same_line()
-		dpg.add_text('ExportResultText', default_value='', show=False, color=(0, 255, 0))
+		dpg.add_slider_float2("corrscale", label='Corr Min/Max', enabled=False,
+							  width=400, callback=plotdata_cb,
+							  callback_data=lambda: {'cscale': dpg.get_value('corrscale')})
 
-### Plotting window
-with dpg.window("FRB Plots", width=1035, height=745, x_pos=600, y_pos=30):
-	dpg.set_mouse_click_callback(mousepos_cb)
-	dpg.add_slider_float2("wfallscale", label='Wfall Min/Max', enabled=False,
-						  width=400, callback=plotdata_cb,
-						  callback_data=lambda: {'scale': dpg.get_value('wfallscale')})
-	dpg.add_same_line()
-	dpg.add_slider_float2("corrscale", label='Corr Min/Max', enabled=False,
-						  width=400, callback=plotdata_cb,
-						  callback_data=lambda: {'cscale': dpg.get_value('corrscale')})
+		# Colors: From implot.cpp: {"Default","Deep","Dark","Pastel","Paired","Viridis","Plasma","Hot","Cool","Pink","Jet"};
+		dpg.add_plot("WaterfallPlot", no_legend=True, height=480, width=500,
+					x_axis_name='Time (ms)', y_axis_name='Frequency (MHz)')
+		dpg.set_color_map("WaterfallPlot", 5) # Viridis
+		dpg.add_same_line()
+		dpg.add_plot("Corr2dPlot", no_legend=True, height=480, width=500, x_axis_name='Time lag (ms)',
+					 y_axis_name='Freq lag (MHz)')
+		dpg.set_color_map("Corr2dPlot", 9) # Pink. "Hot" is good too
 
-	# Colors: From implot.cpp: {"Default","Deep","Dark","Pastel","Paired","Viridis","Plasma","Hot","Cool","Pink","Jet"};
-	dpg.add_plot("WaterfallPlot", no_legend=True, height=480, width=500,
-				x_axis_name='Time (ms)', y_axis_name='Frequency (MHz)')
-	dpg.set_color_map("WaterfallPlot", 5) # Viridis
-	dpg.add_same_line()
-	dpg.add_plot("Corr2dPlot", no_legend=True, height=480, width=500, x_axis_name='Time lag (ms)',
-				 y_axis_name='Freq lag (MHz)')
-	dpg.set_color_map("Corr2dPlot", 9) # Pink. "Hot" is good too
-
-	dpg.add_plot("TimeSeriesPlot", x_axis_name="Time", y_axis_name="Intensity",
-				height=200, width=500, no_legend=True)
+		dpg.add_plot("TimeSeriesPlot", x_axis_name="Time", y_axis_name="Intensity",
+					height=200, width=500, no_legend=True)
 
 
-### Main Menu Bar
-with dpg.window("main"):
-	with dpg.menu_bar("MenuBar##frbrs"):
-		with dpg.menu("Menu##frbrs"):
-			pass
-		with dpg.menu("Themes##frbrs"):
-			dpg.add_menu_item("Dark", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Light", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Classic", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+T")
-			dpg.add_menu_item("Dark 2", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Dark Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Cherry", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Purple", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-			dpg.add_menu_item("Gold", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+P")
-			dpg.add_menu_item("Red", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+Y")
-		with dpg.menu("Tools##frbrs"):
-			dpg.add_menu_item("Show Logger##frbrs", callback=dpg.show_logger)
-			dpg.add_menu_item("Show About##frbrs", callback=dpg.show_about)
-			dpg.add_menu_item("Show Metrics##frbrs", callback=dpg.show_metrics)
-			dpg.add_menu_item("Show Documentation##frbrs", callback=dpg.show_documentation)
-			dpg.add_menu_item("Show Debug##frbrs", callback=dpg.show_debug)
-			dpg.add_menu_item("Show Style Editor##frbrs", callback=dpg.show_style_editor)
-			# dpg.add_menu_item("Show Demo##frbrs", callback=dpg.show_demo)
+	### Main Menu Bar
+	with dpg.window("main"):
+		with dpg.menu_bar("MenuBar##frbrs"):
+			with dpg.menu("Menu##frbrs"):
+				pass
+			with dpg.menu("Themes##frbrs"):
+				dpg.add_menu_item("Dark", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Light", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Classic", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+T")
+				dpg.add_menu_item("Dark 2", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Dark Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Cherry", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Purple", callback = lambda sender, data: dpg.set_theme(sender), check=True)
+				dpg.add_menu_item("Gold", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+P")
+				dpg.add_menu_item("Red", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+Y")
+			with dpg.menu("Tools##frbrs"):
+				dpg.add_menu_item("Show Logger##frbrs", callback=dpg.show_logger)
+				dpg.add_menu_item("Show About##frbrs", callback=dpg.show_about)
+				dpg.add_menu_item("Show Metrics##frbrs", callback=dpg.show_metrics)
+				dpg.add_menu_item("Show Documentation##frbrs", callback=dpg.show_documentation)
+				dpg.add_menu_item("Show Debug##frbrs", callback=dpg.show_debug)
+				dpg.add_menu_item("Show Style Editor##frbrs", callback=dpg.show_style_editor)
+				# dpg.add_menu_item("Show Demo##frbrs", callback=dpg.show_demo)
 
+	# dpg.show_documentation()
+	dpg.set_main_window_size(winwidth, winheight)
+	dpg.set_main_window_title("FRB Repeaters")
+	# dpg.start_dearpygui()
 
-# dpg.show_documentation()
-dpg.set_main_window_size(1700, 850)
-dpg.set_main_window_title("FRB Repeaters")
-# dpg.start_dearpygui()
+	# Load defaults
+	dpg.set_value('Filter', filefilter)
+	directory_cb('user', [datadir])
+	burstselect_cb('burstselect', None)
+	importmask_cb('user', maskfile)
+	importregions_cb('user', regionfile)
 
-# Load defaults
-dpg.set_value('Filter', gdata['globfilter'])
-directory_cb('user', [gdata['datadir']]) # default directory
-burstselect_cb('burstselect', None)
-importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks_aug18.npy'])
-importregions_cb('user', 'burstregions_{}.npy'.format('luo'))
+	## dm range defaults
+	dpg.set_value('dmrange', dmrange)
+	dpg.set_value('numtrials', numtrials)
+	dmrange_cb('user', None)
 
-## dm range defaults
-dpg.set_value('dmrange', [516.0, 518.5])
-dpg.set_value('numtrials', 15)
-dmrange_cb('user', None)
+	dpg.start_dearpygui(primary_window='main') # blocks til closed
+	return gdata
 
-dpg.start_dearpygui(primary_window='main')
+if __name__ == '__main__':
+	frbgui(
+		maskfile='luomasks_aug18.npy',
+		regionfile='burstregions_luo.npy',
+		numtrials=15,
+		dmrange=[516.0, 518.5]
+	)
+
