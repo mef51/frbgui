@@ -231,6 +231,13 @@ meeting notes:
 	* snr too low: bursts 2, 3, 4, 6, 14, 15
 	* signal likely cutoff: 8
 	* worth retrying: 9c, 10b
+	* burst 12 is possibly fit to the wrong feature
 * new bugs:
 	* result table for multiburst doesnt show subburst results after navigating to different burst
 	* cant disable p0 interface group on single burst after performing multiburst (sometimes.. do burst 9 and then burst 1 to reproduce)
+
+## aug 21
+* results look pretty scattered for this source but its points vaguely follow the other sources... i want to try getting better statistics on frb121102 instead of adding more sources i think..
+* for this source drive the higher end of the dm range even lower and maybe do more trials. exclusion logger shows most bursts are positive at 518pc/cm3
+* did measurements from DM 516.3-520
+* let's try 516-518.5

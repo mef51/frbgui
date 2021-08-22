@@ -184,7 +184,6 @@ def getcorr2dtexture(corr, popt=None, p0=None):
 
 	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray')
 	plt.clim(0, np.max(corr)/20)
-	print(popt)
 	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeFitmap(popt, corr)
 		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
@@ -461,9 +460,9 @@ def slope_cb(sender, data):
 	p0 = getOptimalFit(burstdf)
 	if data is None:
 		# ensure p0 is in center of autocorr
-		if not (wfall_cr.shape[1]*2*0.9 <= p0[1] <= wfall_cr.shape[1]*2*1.1):
+		if not (wfall_cr.shape[1]*0.9 <= float(p0[1]) <= wfall_cr.shape[1]*1.1):
 			p0[1] = wfall_cr.shape[1]
-		if not (wfall_cr.shape[0]*2*0.9 <= p0[2] <= wfall_cr.shape[0]*2*1.1):
+		if not (wfall_cr.shape[0]*0.9 <= float(p0[2]) <= wfall_cr.shape[0]*1.1):
 			p0[2] = wfall_cr.shape[0]
 		# todo: find bad dms
 		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
@@ -992,8 +991,8 @@ importmask_cb('user', ['B:\\dev\\frbrepeaters', 'luomasks_aug18.npy'])
 importregions_cb('user', 'burstregions_{}.npy'.format('luo'))
 
 ## dm range defaults
-dpg.set_value('dmrange', [516.3, 522.7])
-dpg.set_value('numtrials', 10)
+dpg.set_value('dmrange', [516.0, 518.5])
+dpg.set_value('numtrials', 15)
 dmrange_cb('user', None)
 
 dpg.start_dearpygui(primary_window='main')
