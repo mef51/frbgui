@@ -241,3 +241,9 @@ meeting notes:
 * for this source drive the higher end of the dm range even lower and maybe do more trials. exclusion logger shows most bursts are positive at 518pc/cm3
 * did measurements from DM 516.3-520
 * let's try 516-518.5
+
+## aug 23
+* consider telescope selection effects. maybe all these bursts agree cuz telescopes with similar capabilities are performing these observations. This is why it might be more useful to focus on FRB121102, since it is observed in many time resolutions and at different frequencies
+
+## aug 24
+* I use a subset of the bursts from Luo et al based on SNR. the dm range implied by that subset is 515.9-518.3. With the error bars, thats 513.6-519.5

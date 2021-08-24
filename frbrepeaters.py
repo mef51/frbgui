@@ -29,6 +29,7 @@ def loadpsrfits(filename):
 		'int_unit'  : ar.getIntensityUnit(),
 		'telescope' : ar.getTelescope(),
 		'burstSN'   : ar.getSN(),
+		'raw_shape' : wfall.shape
 	}
 	try:
 		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//8)

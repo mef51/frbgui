@@ -25,7 +25,7 @@ dpg.show_logger()
 gdata = {
 	'globfilter'     : '*.npz',
 	'masks'          : {},                   # will store lists of masked channel numbers
-	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\luo2020\\180813_ar_file\\ar_file\\converted',
+	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 	'multiburst'     : {                     # store all multiburst metadata
 						'numregions': 1,
 						'enabled'   : False,
@@ -51,8 +51,7 @@ def applyMasks(wfall):
 	return wfall
 
 def makeburstname(filename):
-	return filename[-12:]
-
+	return filename[-10:].split('.')[0]
 
 def log_cb(sender, data):
 	dpg.log_debug(f"{sender}, {data}")
@@ -107,10 +106,11 @@ def loaddata_cb(sender, data):
 		gdata['wfall_original'] = np.copy(wfall) # wfall at burstdm without additional subsampling
 
 		# update subsample controls
-		dpg.set_value('Wfallshapelbl', 'Maximum Size: {}'.format(np.shape(wfall)))
+		dpg.set_value('Wfallshapelbl', 'Original Size: {}'.format(np.shape(wfall)))
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
 		dpg.configure_item('dfreqinput', enabled=True, min_value=0, max_value=wfall.shape[0])
 		dpg.configure_item('dtimeinput', enabled=True, min_value=0, max_value=wfall.shape[1])
+		dpg.configure_item('ResetSamplingBtn', enabled=True)
 		dpg.set_value('dfreqinput', wfall.shape[0])
 		dpg.set_value('dtimeinput', wfall.shape[1])
 
@@ -177,7 +177,15 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 	ts    = np.nanmean(wfall, axis=0)
 	if not pkidx:
 		pkidx = np.nanargmax(ts)
-	return wfall[..., pkidx-twidth:pkidx+twidth]
+
+	ledge, redge = pkidx-twidth, pkidx+twidth
+	if ledge < 0:
+		ledge = 0
+	if redge > wfall.shape[1]:
+		redge = wfall.shape[1]
+	print('cropwfall:', wfall.shape, ledge, redge)
+
+	return wfall[..., ledge:redge]
 
 def getcorr2dtexture(corr, popt=None, p0=None):
 	plt.figure(figsize=(5, 5))
@@ -289,8 +297,11 @@ def plotdata_cb(sender, data):
 	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", list(range(0, len(tseries))), tseries)
 
 def subsample_cb(sender, data):
+	if sender == 'ResetSamplingBtn':
+		dpg.set_value('dfreqinput', gdata['wfall_original'].shape[0])
+		dpg.set_value('dtimeinput', gdata['wfall_original'].shape[1])
+
 	df, dt = dpg.get_value("dfreqinput"), dpg.get_value("dtimeinput")
-	print(df, dt)
 
 	try:
 		# Make a copy of the original fall, apply the masks, then downsample
@@ -333,6 +344,8 @@ def exportmask_cb(sender, data):
 	print(gdata['masks'])
 
 def importmask_cb(sender, data):
+	if data is None:
+		return
 	filename = data
 	log_cb(sender, 'mask selected: {}'.format(data))
 	if filename.split('.')[-1] == 'npy':
@@ -362,11 +375,13 @@ def masktable_cb(sender, data):
 	# dpg makes working with tables impossible so we will delete the table and re-add it every time
 	dpg.delete_item('Masktable')
 
-	tableheight = round(min(25*len(gdata['masks'][list(gdata['masks'].keys())[0]]), 250))
+	fileidx = dpg.get_value('burstselect')
+	tableheight = round(min(25*len(gdata['masks'][list(gdata['masks'].keys())[fileidx]]), 250))
 	dpg.add_table('Masktable', [], height=tableheight, parent='Masking', callback=removemask_cb)
 
 	columns = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
 	for key, col in zip(gdata['masks'].keys(), columns):
+
 		dpg.add_column('Masktable', col, gdata['masks'][key])
 
 def resulttable_cb(sender, data):
@@ -416,7 +431,13 @@ def dmrange_cb(sender, data):
 		dpg.configure_item('DMWarning', show=True)
 	else:
 		dpg.configure_item('DMWarning', show=False)
-	# trialDMs = np.append(np.linspace(dmrange[0], dmrange[1], num=numtrials), burstDM)
+
+	if sender == 'dmstep' or sender == 'user':
+		numtrials = round((dmrange[1] - dmrange[0])/dpg.get_value('dmstep'))
+		dpg.set_value('numtrials', numtrials)
+	elif sender == 'numtrials':
+		dmstep = (dmrange[1] - dmrange[0])/numtrials
+		dpg.set_value('dmstep', dmstep)
 	gdata['trialDMs'] = np.linspace(dmrange[0], dmrange[1], num=numtrials)
 
 def getCurrentBurst():
@@ -687,6 +708,8 @@ def exportregions_cb(sender, data):
 	print('Saved', filename)
 
 def importregions_cb(sender, data):
+	if data is None:
+		return
 	filename = data
 	if os.path.exists(filename):
 		loadobj = np.load(filename, allow_pickle=True)[0]
@@ -801,7 +824,8 @@ def toggle_config(sender, data):
 	for item in data['items']:
 		dpg.configure_item(item, **config_dict)
 
-def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
+def frbgui(filefilter=gdata['globfilter'],
+		datadir=None,
 		maskfile=None,
 		regionfile=None,
 		dmrange=None,
@@ -809,6 +833,7 @@ def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
 		winwidth=1700,
 		winheight=850,
 	):
+	gdata['datadir'] = datadir
 	with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		with dpg.collapsing_header("1. Data", default_open=True):
 			dpg.add_button("Select Directory...", callback=lambda s, d: dpg.select_directory_dialog(directory_cb))
@@ -844,8 +869,13 @@ def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
 				min_value=0, max_value=0)
 			helpmarker('Double click to edit')
 			dpg.add_input_int('numtrials', label='# of Trial DMs', default_value=10, callback=dmrange_cb)
+			dpg.add_text(' or ')
+			dpg.add_input_float('dmstep', label='DM Step (pc/cm^3)', default_value=0.1,
+				min_value=0.001,
+				min_clamped=True,
+				callback=dmrange_cb)
 
-		with dpg.collapsing_header("2. Waterfall Cleanup", default_open=False):
+		with dpg.collapsing_header("2. Waterfall Cleanup", default_open=True):
 			with dpg.tree_node('Masking', default_open=True):
 				dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
 				dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
@@ -859,11 +889,12 @@ def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
 				dpg.add_table('Masktable', [], height=50)
 
 			with dpg.tree_node('Downsampling', default_open=True):
-				dpg.add_text("Wfallshapelbl", default_value="Maximum Size: (no burst selected)")
+				dpg.add_text("Wfallshapelbl", default_value="Original Size: (no burst selected)")
 				dpg.add_text("Subfallshapelbl", default_value="Current Size: (no burst selected)")
 				dpg.add_input_int("dfreqinput", width=100, label="df", callback=subsample_cb, enabled=False)
 				dpg.add_same_line()
 				dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
+				dpg.add_button('ResetSamplingBtn', label='Reset', callback=subsample_cb, enabled=False)
 
 		with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
 			dpg.add_checkbox('MultiBurstBox', label='Are there multiple bursts in this waterfall?',
@@ -1006,9 +1037,9 @@ def frbgui(filefilter=gdata['globfilter'], datadir=gdata['datadir'],
 
 if __name__ == '__main__':
 	frbgui(
-		maskfile='luomasks_aug18.npy',
-		regionfile='burstregions_luo.npy',
+		datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
+		maskfile=None,
+		regionfile=None,
 		numtrials=15,
-		dmrange=[516.0, 518.5]
+		dmrange=[560, 568]
 	)
-
