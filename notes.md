@@ -247,3 +247,16 @@ meeting notes:
 
 ## aug 24
 * I use a subset of the bursts from Luo et al based on SNR. the dm range implied by that subset is 515.9-518.3. With the error bars, thats 513.6-519.5
+* TODO:
+	* fix axes
+	* fix masking when displaying true axes
+	* fix resolution update after subsampling
+
+## aug 26
+* might need fancier noise removal than point-and-click. transient short spikes are hard to spot, even when tweaking the colorbar. Can't seem to reproduce some figure plots:
+	* R1_B04
+	* R1_B05
+	* R1_B11
+	* R1_B12
+* HMMM looks like some of them are flipped in the time-axis??
+	* R1_B13

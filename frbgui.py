@@ -77,17 +77,16 @@ def loaddata_cb(sender, data):
 					gdata['burstmeta'][key] = loaded[key]
 					if key == 'dfs':
 						dfs = loaded[key]
-						downf = loaded['raw_shape'][0] / wfall.shape[0]
-						df = (dfs[-1] - dfs[0])/len(dfs) * downf
+						df = (dfs[-1] - dfs[0])/ wfall.shape[0]
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
-						downt = loaded['raw_shape'][1] / wfall.shape[1]
-						dt = loaded[key][0] / loaded['raw_shape'][1] * downt * 1000
+						dt = loaded['duration'] / loaded['raw_shape'][1]*1000
+						print(dt, loaded['duration'], wfall.shape[1])
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
-						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+1))
+						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+3))
 					else:
 						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
 
@@ -108,11 +107,11 @@ def loaddata_cb(sender, data):
 		# update subsample controls
 		dpg.set_value('Wfallshapelbl', 'Original Size: {}'.format(np.shape(wfall)))
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
-		dpg.configure_item('dfreqinput', enabled=True, min_value=0, max_value=wfall.shape[0])
-		dpg.configure_item('dtimeinput', enabled=True, min_value=0, max_value=wfall.shape[1])
+		dpg.configure_item('numfreqinput', enabled=True, min_value=0, max_value=wfall.shape[0])
+		dpg.configure_item('numtimeinput', enabled=True, min_value=0, max_value=wfall.shape[1])
 		dpg.configure_item('ResetSamplingBtn', enabled=True)
-		dpg.set_value('dfreqinput', wfall.shape[0])
-		dpg.set_value('dtimeinput', wfall.shape[1])
+		dpg.set_value('numfreqinput', wfall.shape[0])
+		dpg.set_value('numtimeinput', wfall.shape[1])
 
 		# update result controls
 		if gdata['resultsdf'] is not None:
@@ -134,7 +133,8 @@ def loaddata_cb(sender, data):
 		# setup burst splitting
 		for regid in range(1, gdata['multiburst']['numregions']):
 			if dpg.does_item_exist('RegionSelector{}'.format(regid)):
-				dpg.configure_item('Region{}'.format(regid), max_value=cropwfall(wfall).shape[1])
+				maxval = cropwfall(wfall).shape[1]*gdata['burstmeta']['tres']
+				dpg.configure_item('Region{}'.format(regid), max_value=maxval)
 		if burstname in gdata['multiburst']['regions']:
 			if not gdata['multiburst']['enabled']:
 				dpg.set_value('MultiBurstBox', True)
@@ -156,6 +156,11 @@ def loaddata_cb(sender, data):
 
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
+		bandwidth = gdata['extents'][3] - gdata['extents'][2]
+		duration = gdata['extents'][1] - gdata['extents'][0]
+		gdata['burstmeta']['fres'] = bandwidth / wfall.shape[0]
+		gdata['burstmeta']['tres'] = duration / wfall.shape[1]
+
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
 	else:
 		wfall = gdata['wfall']
@@ -183,7 +188,7 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 		ledge = 0
 	if redge > wfall.shape[1]:
 		redge = wfall.shape[1]
-	print('cropwfall:', wfall.shape, ledge, redge)
+	# print('cropwfall:', wfall.shape, ledge, redge)
 
 	return wfall[..., ledge:redge]
 
@@ -246,6 +251,7 @@ def plotdata_cb(sender, data):
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
+	print(f'{extents = }')
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
@@ -275,8 +281,8 @@ def plotdata_cb(sender, data):
 		values=list(np.flipud(wfall_dd_cr).flatten()),
 		rows=wfall_dd_cr.shape[0], columns=wfall_dd_cr.shape[1],
 		scale_min=smin, scale_max=smax,
-		bounds_min=(0,0), bounds_max=(wfall_dd_cr.shape[1], wfall_dd_cr.shape[0]), format='')
-		# bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
+		# bounds_min=(0,0), bounds_max=(wfall_dd_cr.shape[1], wfall_dd_cr.shape[0]), format='')
+		bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
 
 	dpg.set_plot_xlimits_auto('WaterfallPlot')
 	dpg.set_plot_ylimits_auto('WaterfallPlot')
@@ -294,24 +300,25 @@ def plotdata_cb(sender, data):
 		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]]
 	)
 
-	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", list(range(0, len(tseries))), tseries)
+	tx = np.linspace(extents[0], extents[1], num=len(tseries))
+	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", tx, tseries)
 
 def subsample_cb(sender, data):
 	if sender == 'ResetSamplingBtn':
-		dpg.set_value('dfreqinput', gdata['wfall_original'].shape[0])
-		dpg.set_value('dtimeinput', gdata['wfall_original'].shape[1])
+		dpg.set_value('numfreqinput', gdata['wfall_original'].shape[0])
+		dpg.set_value('numtimeinput', gdata['wfall_original'].shape[1])
 
-	df, dt = dpg.get_value("dfreqinput"), dpg.get_value("dtimeinput")
+	numf, numt = dpg.get_value("numfreqinput"), dpg.get_value("numtimeinput")
 
 	try:
 		# Make a copy of the original fall, apply the masks, then downsample
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
-		subfall = driftrate.subsample(wfall, df, dt)
+		subfall = driftrate.subsample(wfall, numf, numt)
 		gdata['wfall'] = subfall
-		log_cb('subsample_cb', (df, dt))
+		log_cb('subsample_cb', (numf, numt))
 		loaddata_cb('subsample_cb', {'subsample': True})
 	except (ValueError, ZeroDivisionError) as e:
-		error_log_cb('subsample_cb', (df, dt, e))
+		error_log_cb('subsample_cb', (numf, numt, e))
 
 def directory_cb(sender, data):
 	dpg.set_value('Dirtext', 'Selected: {}'.format(data[0]))
@@ -375,13 +382,14 @@ def masktable_cb(sender, data):
 	# dpg makes working with tables impossible so we will delete the table and re-add it every time
 	dpg.delete_item('Masktable')
 
-	fileidx = dpg.get_value('burstselect')
-	tableheight = round(min(25*len(gdata['masks'][list(gdata['masks'].keys())[fileidx]]), 250))
+	mostmasks = 1
+	for burst, masks in gdata['masks'].items():
+		mostmasks = len(masks) if len(masks) > mostmasks else mostmasks
+	tableheight = round(min(25*mostmasks, 250))
 	dpg.add_table('Masktable', [], height=tableheight, parent='Masking', callback=removemask_cb)
 
 	columns = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
 	for key, col in zip(gdata['masks'].keys(), columns):
-
 		dpg.add_column('Masktable', col, gdata['masks'][key])
 
 def resulttable_cb(sender, data):
@@ -405,17 +413,23 @@ def updateResultTable(resultsdf):
 		newrow = [burstname] + [rowdata[col] for col in columns[1:]]
 		dpg.add_row('Resulttable', newrow)
 
-def mousepos_cb(sender, data):
+def mousemask_cb(sender, data):
 	isOnWaterfall = dpg.is_item_hovered('WaterfallPlot')
 	if isOnWaterfall:
 		tchan, fchan = dpg.get_plot_mouse_pos()
-		mask = round(fchan)
+		rawmask = round(fchan)
+
+		# map frequency (rawmask) to channel number
+		spectralrange = [round(gdata['extents'][2]), round(gdata['extents'][3])]
+		mask = np.interp(rawmask, spectralrange, [0, gdata['wfall_original'].shape[0]])
+		mask = int(mask)
+
 		if mask not in gdata['masks'][gdata['currfile']]:
 			gdata['masks'][gdata['currfile']].append(mask)
 
 		loaddata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
-		log_cb('mousepos_cb ', [[tchan, fchan], isOnWaterfall])
+		log_cb('mousemask_cb ', [[tchan, fchan], isOnWaterfall])
 	else:
 		return
 
@@ -698,7 +712,7 @@ def enablesplitting_cb(sender, data):
 def exportregions_cb(sender, data):
 	regions = getAllRegions()
 	saveobj = {gdata['displayedBurst']: regions}
-	filename = 'burstregions_{}.npy'.format('luo')
+	filename = 'burstregions_{}.npy'.format('oostrum')
 	if os.path.exists(filename):
 		loadobj = np.load(filename, allow_pickle=True)[0]
 		loadobj[gdata['displayedBurst']] = regions
@@ -757,17 +771,18 @@ def regionSelector():
 	before = "AddRegionBtn" if regid > 1 else ""
 	enabled = gdata['multiburst']['enabled']
 	if 'wfall' in gdata:
-		maxval = cropwfall(gdata['wfall']).shape[1]
+		maxval =  gdata['extents'][1]
 	else:
 		maxval = 100
 
 	with dpg.group('RegionSelector{}'.format(regid), horizontal=True, parent='SplittingSection',
 		before=before):
-		dpg.add_drag_int2('Region{}'.format(regid),
+		dpg.add_drag_float2('Region{}'.format(regid),
 			label='',
 			width=280,
 			enabled=enabled,
 			max_value=maxval,
+			speed=0.5,
 			default_value=[0, 25],
 			callback=drawregion_cb
 		)
@@ -792,7 +807,12 @@ def getSubbursts():
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			regionname = 'Region{}'.format(regid)
 			typename = 'RegionType{}'.format(regid)
+
 			region = dpg.get_value(regionname)
+			trange = [gdata['extents'][0], gdata['extents'][1]]
+			for i, edge in enumerate(region):
+				region[i] = np.interp(edge, trange, [0, gdata['wfall_original'].shape[1]])
+
 			regiontype =  dpg.get_value(typename)
 			if regiontype == 0:   # Background
 				background = wfall_cr[:, region[0]:region[1]]
@@ -891,9 +911,9 @@ def frbgui(filefilter=gdata['globfilter'],
 			with dpg.tree_node('Downsampling', default_open=True):
 				dpg.add_text("Wfallshapelbl", default_value="Original Size: (no burst selected)")
 				dpg.add_text("Subfallshapelbl", default_value="Current Size: (no burst selected)")
-				dpg.add_input_int("dfreqinput", width=100, label="df", callback=subsample_cb, enabled=False)
+				dpg.add_input_int("numfreqinput", width=100, label="numf", callback=subsample_cb, enabled=False)
 				dpg.add_same_line()
-				dpg.add_input_int("dtimeinput", width=100, label="dt", callback=subsample_cb, enabled=False)
+				dpg.add_input_int("numtimeinput", width=100, label="numt", callback=subsample_cb, enabled=False)
 				dpg.add_button('ResetSamplingBtn', label='Reset', callback=subsample_cb, enabled=False)
 
 		with dpg.collapsing_header("SplittingSection", label="3. Burst Splitting", default_open=True):
@@ -968,7 +988,7 @@ def frbgui(filefilter=gdata['globfilter'],
 
 	### Plotting window
 	with dpg.window("FRB Plots", width=1035, height=745, x_pos=600, y_pos=30):
-		dpg.set_mouse_click_callback(mousepos_cb)
+		dpg.set_mouse_click_callback(mousemask_cb)
 		dpg.add_slider_float2("wfallscale", label='Wfall Min/Max', enabled=False,
 							  width=400, callback=plotdata_cb,
 							  callback_data=lambda: {'scale': dpg.get_value('wfallscale')})

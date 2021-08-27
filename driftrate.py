@@ -139,7 +139,6 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
 			   lowest_freq,
 			   lowest_freq + df*wfall.shape[0])
 
-	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2])*2, (extents[3]-extents[2])*2)
 	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
 	return extents, corrextents
 
