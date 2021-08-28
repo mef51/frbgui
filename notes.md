@@ -260,3 +260,15 @@ meeting notes:
 	* R1_B12
 * HMMM looks like some of them are flipped in the time-axis??
 	* R1_B13
+
+## aug 27
+* sksg filter failed to reveal the missing bursts, even when applied on the whole waterfall
+
+561-569
+570
+572
+* I will start with a dm range of 560-570
+	* redo B14.. there's a bug when redoing an entire burst
+* fits were found really fast for this data, maybe somethign to do with the intensity axis?
+* either way I have data for ~25 new points. I feel kind of lost so I want to write some diagnostic plots that take in the giant csvs and make a document that can be reviewed. I also want to automate the slope vs duration figure a little better.
+* instead of "determining a good DM range" it feels more like taking a huge DM range and then "finding" the DM range where most of the bursts have valid measurements. Maybe the range found this way means something?

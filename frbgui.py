@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import warnings
+from your.utils.rfi import sk_sg_filter_raw
 warnings.filterwarnings("ignore")
 
 # subfall, pkidx = frbrepeaters.loadpsrfits('data/oostrum2020/R1_frb121102/R1_B07.rf')
@@ -48,6 +49,9 @@ def applyMasks(wfall):
 	for mask in gdata['masks'][gdata['currfile']]:
 		if mask < len(wfall):
 			wfall[mask] = 0
+	if 'sksgmask' in gdata and dpg.get_value('EnableSKSGMaskBox'):
+		wfall[gdata['sksgmask'], :] = 0
+
 	return wfall
 
 def makeburstname(filename):
@@ -121,7 +125,10 @@ def loaddata_cb(sender, data):
 			dpg.configure_item('DeleteBurstBtn', enabled=False) # unimplemented
 			dpg.configure_item('DeleteAllBtn', enabled=False) # unimplemented
 			if hasResults:
-				gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+				if gdata['multiburst']['enabled']:
+					gdata['burstdf'] = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+				else:
+					gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
 				updateResultTable(gdata['burstdf'])
 			else:
 				updateResultTable(pd.DataFrame())
@@ -391,6 +398,24 @@ def masktable_cb(sender, data):
 	columns = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
 	for key, col in zip(gdata['masks'].keys(), columns):
 		dpg.add_column('Masktable', col, gdata['masks'][key])
+
+def sksgmask_cb(sender, data):
+	items = ['SKSGSigmaInput','SKSGWindowInput','SKSGStatus']
+	if sender == 'EnableSKSGMaskBox':
+		toggle_config(sender, {'kwargs': ['enabled'], 'items': items})
+
+	sigma, window = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
+	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
+	sksgmask = sk_sg_filter_raw(
+		data=gdata['wfall_original'].copy().T,
+		foff=df,
+		tsamp=dt/1000,
+		spectral_kurtosis_sigma=sigma,
+		savgol_frequency_window=window,
+		savgol_sigma=sigma,
+	)
+	gdata['sksgmask'] = sksgmask
+	loaddata_cb(sender, {'keepview': True})
 
 def resulttable_cb(sender, data):
 	coords = dpg.get_table_selections('Resulttable')
@@ -908,6 +933,16 @@ def frbgui(filefilter=gdata['globfilter'],
 
 				dpg.add_table('Masktable', [], height=50)
 
+			with dpg.tree_node('Auto Masking', default_open=True):
+				dpg.add_checkbox('EnableSKSGMaskBox', label='Enable SK-SG Filter', default_value=False,
+					callback=sksgmask_cb)
+				dpg.add_input_int("SKSGSigmaInput", width=100, default_value=3, label="sigma",
+					callback=sksgmask_cb, enabled=False, min_value=1)
+				dpg.add_same_line()
+				dpg.add_input_int("SKSGWindowInput", width=100, default_value=15, label="window",
+					callback=sksgmask_cb, enabled=False, min_value=1)
+				dpg.add_text('SKSGStatus', default_value=' ')
+
 			with dpg.tree_node('Downsampling', default_open=True):
 				dpg.add_text("Wfallshapelbl", default_value="Original Size: (no burst selected)")
 				dpg.add_text("Subfallshapelbl", default_value="Current Size: (no burst selected)")
@@ -945,7 +980,7 @@ def frbgui(filefilter=gdata['globfilter'],
 				enabled=False
 			)
 
-			dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
+			dpg.add_text('NusMeasurementsText', default_value="# of Measurements for this burst: (none)")
 			dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
 			with dpg.group("DMselector", horizontal=True):
 				dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
