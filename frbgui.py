@@ -531,6 +531,10 @@ def slope_cb(sender, data):
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
+		# overwrite if there are already results
+		if gdata['resultsdf'].index.str.startswith(burstname).any():
+			df = gdata['resultsdf']
+			gdata['resultsdf'] = df.drop(df[df.index.str.startswith(burstname)].index)
 		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
 	print(gdata['resultsdf'])
 
@@ -875,6 +879,7 @@ def frbgui(filefilter=gdata['globfilter'],
 		regionfile=None,
 		dmrange=None,
 		numtrials=10,
+		dmstep=0.1,
 		winwidth=1700,
 		winheight=850,
 	):
@@ -1085,6 +1090,7 @@ def frbgui(filefilter=gdata['globfilter'],
 	## dm range defaults
 	dpg.set_value('dmrange', dmrange)
 	dpg.set_value('numtrials', numtrials)
+	dpg.set_value('dmstep', dmstep)
 	dmrange_cb('user', None)
 
 	dpg.start_dearpygui(primary_window='main') # blocks til closed
@@ -1095,6 +1101,7 @@ if __name__ == '__main__':
 		datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		maskfile=None,
 		regionfile=None,
-		numtrials=15,
-		dmrange=[560, 568]
+		numtrials=20,
+		dmstep=3,
+		dmrange=[560, 570]
 	)
