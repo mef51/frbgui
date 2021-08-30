@@ -267,8 +267,15 @@ meeting notes:
 561-569
 570
 572
-* I will start with a dm range of 560-570
+* I will start with a dm range of 560-570 with a step of 0.5
 	* redo B14.. there's a bug when redoing an entire burst
 * fits were found really fast for this data, maybe somethign to do with the intensity axis?
-* either way I have data for ~25 new points. I feel kind of lost so I want to write some diagnostic plots that take in the giant csvs and make a document that can be reviewed. I also want to automate the slope vs duration figure a little better.
+* either way I have data for about 25 new points. I feel kind of lost so I want to write some diagnostic plots that take in the giant csvs and make a document that can be reviewed. I also want to automate the slope vs duration figure a little better.
+	>> plotResults from results csv
+	>> automate best DM selection
+	>> altair version of figure 1? would be nice to click a point and see its underlying fits. but can do this with annotations and plotResults to start
 * instead of "determining a good DM range" it feels more like taking a huge DM range and then "finding" the DM range where most of the bursts have valid measurements. Maybe the range found this way means something?
+
+
+## aug 29
+* added plotResults to make pdf of every fit

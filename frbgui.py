@@ -546,7 +546,8 @@ def slope_cb(sender, data):
 	dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	dpg.configure_item('PrevDM', enabled=True)
 	dpg.configure_item('NextDM', enabled=True)
-	dpg.configure_item('ExportResultsBtn', enabled=True)
+	dpg.configure_item('ExportCSVBtn', enabled=True)
+	dpg.configure_item('ExportPDFBtn', enabled=True)
 	dpg.configure_item('EnableP0Box', enabled=True)
 	initializeP0Group()
 	if gdata['multiburst']['enabled']:
@@ -610,8 +611,14 @@ def exportresults_cb(sender, data):
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
 	df.to_csv(filename)
-	dpg.set_value('ExportResultText', 'Saved to {}'.format(filename))
-	dpg.configure_item('ExportResultText', show=True)
+	dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
+	dpg.configure_item('ExportCSVText', show=True)
+
+	if sender == 'ExportPDFBtn':
+		dpg.configure_item('ExportPDFText', show=True)
+		dpg.set_value('ExportPDFText', 'Saving PDF...')
+		driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
+		dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
 
 def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
@@ -1022,9 +1029,13 @@ def frbgui(filefilter=gdata['globfilter'],
 				dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
 
 			dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
-			dpg.add_button('ExportResultsBtn', label="Export Full Results", callback=exportresults_cb, enabled=False)
+			dpg.add_button('ExportCSVBtn', label="Export Results CSV", callback=exportresults_cb, enabled=False)
 			dpg.add_same_line()
-			dpg.add_text('ExportResultText', default_value='', show=False, color=(0, 255, 0))
+			dpg.add_text('ExportCSVText', default_value=' ', show=True, color=(0, 255, 0))
+			dpg.add_button('ExportPDFBtn', label="Export Results PDF", callback=exportresults_cb, enabled=False)
+			dpg.add_same_line()
+			dpg.add_text('ExportPDFText', default_value=' ', show=True, color=(0, 255, 0))
+
 
 	### Plotting window
 	with dpg.window("FRB Plots", width=1035, height=745, x_pos=600, y_pos=30):
@@ -1102,6 +1113,6 @@ if __name__ == '__main__':
 		maskfile=None,
 		regionfile=None,
 		numtrials=20,
-		dmstep=3,
+		dmstep=0.5,
 		dmrange=[560, 570]
 	)

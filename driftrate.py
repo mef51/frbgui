@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.backends.backend_pdf
 import numpy as np
 import scipy.optimize
 import itertools, glob
@@ -359,6 +360,86 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 
 	plt.tight_layout()
 	plt.show()
+
+def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=(14, 16), nrows=6, ncols=4):
+	"""
+	Similar to plotStampcard but reads all data from the results csv produced by the gui
+
+	Plots fit results by burst at each DM
+	"""
+	resultsdf = pd.read_csv(resultsfile).set_index('name')
+	plt.figure(figsize=figsize)
+	ploti = itertools.count(start=1, step=1)
+	outputfile = f"{resultsfile.split('.')[0].split('/')[-1]}.pdf"
+	pdf = matplotlib.backends.backend_pdf.PdfPages(outputfile)
+	if type(masks) == str: # filename
+		masks = np.load(masks, allow_pickle=True)[0]
+
+	for name, row in resultsdf.iterrows():
+		file = [f for f in datafiles if name in f][0]
+		data = np.load(file)
+
+		wfall = data['wfall']
+		df, dt = row['f_res (mhz)'], row['time_res']*1000
+		bandwidth = data['dfs'][-1] - data['dfs'][0]
+		lowest_freq = data['dfs'][0]
+
+		# dedisperse
+		ddm = row['DM'] - data['DM']
+		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt)
+
+		# apply masks
+		if masks is not None:
+			mask = [masks[k] for k in masks.keys() if name in k][0]
+			for m in mask:
+				if m < len(wfall):
+					wfall[m] = 0
+
+		# Check if the waterfall was subsampled before measuring.
+		# We want to reproduce that in the figure, so subsample the wfall before displaying it if needed
+		if bandwidth/data['raw_shape'][0] != df:
+			factor = df / (bandwidth/data['raw_shape'][0])
+			if round(factor) == factor:
+				wfall = subsample(wfall, int(wfall.shape[0]/factor), wfall.shape[1])
+		if data['duration']/data['raw_shape'][1] != dt:
+			factor = dt / (data['duration']/data['raw_shape'][1])
+			if round(factor) == factor:
+				wfall = subsample(wfall, wfall.shape[0], int(wfall.shape[1]/factor))
+
+		# TODO: split multibursts
+
+		corr = autocorr2d(wfall)
+		popt = [row['amplitude'], row['xo'], row['yo'], row['sigmax'], row['sigmay'], row['angle']]
+
+		fitmap = makeFitmap(popt, corr)
+		extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
+
+		currentplot = next(ploti)
+		plt.subplot(nrows, ncols, currentplot)
+		plt.imshow(wfall, origin='lower', interpolation='none', aspect='auto', extent=extents)
+		plt.title(f'{name}: DM = {round(row["DM"], 2)}')
+		plt.xlabel('Time (ms)'), plt.ylabel('Freq (MHz)')
+
+		currentplot = next(ploti)
+		plt.subplot(nrows, ncols, currentplot)
+		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray', extent=corrextents)
+		plt.clim(0, np.max(corr)/20)
+		plt.title(f'Corr {name}: DM = {round(row["DM"], 2)}')
+		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
+		if popt[0] > 0:
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
+
+		if currentplot == nrows*ncols:
+			# save current page of pdf, start new page, reset counter
+			plt.tight_layout()
+			pdf.savefig(plt.gcf())
+			plt.close()
+			plt.figure(figsize=figsize)
+			ploti = itertools.count(start=1, step=1)
+
+	plt.tight_layout()
+	pdf.savefig(plt.gcf())
+	pdf.close()
 
 def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,
 				lowest_freq, ploti=None):
