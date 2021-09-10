@@ -276,6 +276,18 @@ meeting notes:
 	>> altair version of figure 1? would be nice to click a point and see its underlying fits. but can do this with annotations and plotResults to start
 * instead of "determining a good DM range" it feels more like taking a huge DM range and then "finding" the DM range where most of the bursts have valid measurements. Maybe the range found this way means something?
 
-
 ## aug 29
 * added plotResults to make pdf of every fit
+
+## sept 01
+* drift range becoming negative is common in oostrum dataset. seems to be related to slope errors > 40%
+	* could add filter based on proportion of error or could just explicitly exclude any measurement that flips the dm range sign
+* there are several horizontal tracking points as well, these are problematic because they indicate that the DM choice can cause the trend
+
+## sept 6
+* working on reading aggarwal et al. 2021 data
+	* parse cand_id from the csv and use BurstData to load the waterfall from the filterbank
+
+## sept 8
+* subsample_cb and applyMasks and subtractbg can probably be refactored into a single 'cleanWaterfall' function
+* check resolution of aggarwal.. subsamplecb affects the resolutions differently for this dataset

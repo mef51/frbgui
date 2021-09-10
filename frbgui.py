@@ -10,23 +10,13 @@ import warnings
 from your.utils.rfi import sk_sg_filter_raw
 warnings.filterwarnings("ignore")
 
-# subfall, pkidx = frbrepeaters.loadpsrfits('data/oostrum2020/R1_frb121102/R1_B07.rf')
-# subfall, pkidx, wfall = frbrepeaters.loadpsrfits('data/oostrum2020/R1_frb121102/R1_B07.rf')
-
-# width = 150
-# subfall = subfall[:, pkidx-width:pkidx+width]
-# plt.imshow(subfall[:, pkidx-width:pkidx+width], origin='lower',interpolation='none', aspect='auto')
-# plt.show()
-# dpg.show_demo()
-
-# dpg.show_debug()
 dpg.show_logger()
 
 # GUI data is stored in this object. Defaults initialized here and at the bottom
 gdata = {
 	'globfilter'     : '*.npz',
 	'masks'          : {},                   # will store lists of masked channel numbers
-	'datadir'        : 'B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
+	'datadir'        : '',
 	'multiburst'     : {                     # store all multiburst metadata
 						'numregions': 1,
 						'enabled'   : False,
@@ -72,9 +62,9 @@ def loaddata_cb(sender, data):
 		loaded = np.load(filename)
 
 		if type(loaded) == np.ndarray:
-			wfall = loaded
+			wfall = loaded.astype(np.float64)
 		elif type(loaded) == np.lib.npyio.NpzFile:
-			wfall = loaded['wfall']
+			wfall = loaded['wfall'].astype(np.float64)
 			gdata['burstmeta'] = {}
 			for key in loaded.files:
 				if key != 'wfall':
@@ -124,12 +114,29 @@ def loaddata_cb(sender, data):
 			dpg.configure_item('NextDM', enabled=hasResults)
 			dpg.configure_item('DeleteBurstBtn', enabled=False) # unimplemented
 			dpg.configure_item('DeleteAllBtn', enabled=False) # unimplemented
+			dpg.configure_item('EnableP0Box', enabled=hasResults)
 			if hasResults:
 				if gdata['multiburst']['enabled']:
 					gdata['burstdf'] = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 				else:
 					gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+
+				# check if subsampling is needed (for eg. if results have been loaded)
+				fres, tres = gdata['burstdf'][['f_res (mhz)', 'time_res (s)']].iloc[0]
+				tres = tres*1000
+				if fres != gdata['burstmeta']['fres']:
+					subfac = fres/gdata['burstmeta']['fres']
+					if round(subfac) == subfac:
+						dpg.set_value('numfreqinput', int(wfall.shape[0]/subfac))
+						wfall = subsample_cb('loadresults_cb', None)
+				if tres != gdata['burstmeta']['tres']:
+					subfac = tres/gdata['burstmeta']['tres']
+					if round(subfac) == subfac:
+						dpg.set_value('numtimeinput', int(wfall.shape[1]/subfac))
+						wfall = subsample_cb('loadresults_cb', None)
+
 				updateResultTable(gdata['burstdf'])
+				initializeP0Group()
 			else:
 				updateResultTable(pd.DataFrame())
 				gdata['p0'] = None
@@ -160,13 +167,14 @@ def loaddata_cb(sender, data):
 				dpg.set_value('RegionType{}'.format(regid), regiontype)
 				drawregion_cb([regid], None)
 
-
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
+
+		wfall_cr = cropwfall(wfall)
 		bandwidth = gdata['extents'][3] - gdata['extents'][2]
 		duration = gdata['extents'][1] - gdata['extents'][0]
-		gdata['burstmeta']['fres'] = bandwidth / wfall.shape[0]
-		gdata['burstmeta']['tres'] = duration / wfall.shape[1]
+		gdata['burstmeta']['fres'] = bandwidth / wfall_cr.shape[0]
+		gdata['burstmeta']['tres'] = duration / wfall_cr.shape[1]
 
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
 	else:
@@ -238,7 +246,8 @@ def plotdata_cb(sender, data):
 	if gdata['resultsdf'] is not None:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		if not subburstdf.empty:
-			popt = subburstdf.loc[burstname].set_index('DM').loc[gdata['displayedDM']][5:11]
+			dmframe = subburstdf.loc[burstname].set_index('DM')
+			popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
 
 	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
 	if ('resultidx' not in data) or (subname == burstname):
@@ -252,13 +261,13 @@ def plotdata_cb(sender, data):
 		subburst = subbursts[subname]
 		wfall_cr = subburst
 		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
-		popt = subburstdf.loc[subname].set_index('DM').loc[gdata['displayedDM']][5:11]
+		dmframe = subburstdf.loc[subname].set_index('DM')
+		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])][5:11]
 
 	tseries = np.nanmean(wfall_dd_cr, axis=0)
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
-	print(f'{extents = }')
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
@@ -324,6 +333,7 @@ def subsample_cb(sender, data):
 		gdata['wfall'] = subfall
 		log_cb('subsample_cb', (numf, numt))
 		loaddata_cb('subsample_cb', {'subsample': True})
+		return subfall
 	except (ValueError, ZeroDivisionError) as e:
 		error_log_cb('subsample_cb', (numf, numt, e))
 
@@ -360,6 +370,8 @@ def exportmask_cb(sender, data):
 def importmask_cb(sender, data):
 	if data is None:
 		return
+	if type(data) == list:
+		data = data[-1]
 	filename = data
 	log_cb(sender, 'mask selected: {}'.format(data))
 	if filename.split('.')[-1] == 'npy':
@@ -604,6 +616,12 @@ def getAllRegions():
 				ret['background'] = region
 	return ret
 
+def loadresults_cb(sender, data):
+	resultsfile = os.path.join(*data)
+	resultsdf = pd.read_csv(resultsfile).set_index('name')
+	gdata['resultsdf'] = resultsdf
+	burstselect_cb(sender, data)
+
 def exportresults_cb(sender, data):
 	resultsdf = gdata['resultsdf']
 	df = driftlaw.computeModelDetails(resultsdf)
@@ -629,7 +647,7 @@ def displayresult_cb(sender, data):
 	subname = gdata['displayedBurst']
 	dispdm = gdata['displayedDM']
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
-	resultidx = subburstdf[(subburstdf.name == subname) & (subburstdf.DM == dispdm)].index[0]
+	resultidx = subburstdf[(subburstdf.name == subname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
 	subburstdf = subburstdf.set_index('name')
 
 	if sender == 'User':
@@ -666,7 +684,7 @@ def deleteresults_cb(sender, data):
 	burstname = dpg.get_value('burstname').replace(',', '')
 	if sender == 'ConfirmDelete':
 		if data == 'burst':
-			df = gdata['resultsdf'].loc[~burstname] # nope
+			df = gdata['resultsdf'].loc[~burstname] # use df.drop see slope_cb
 		elif data == 'all':
 			gdata['resultsdf'] = None
 	else:
@@ -975,6 +993,11 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_button('ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
 
 		with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
+			dpg.add_button("Load Results",
+				callback=lambda s, d:dpg.open_file_dialog(loadresults_cb, extensions='.csv'))
+			dpg.add_same_line()
+			dpg.add_text("LoadResultsWarning", color=(255, 0, 0),
+				default_value="Warning: will overwrite unsaved results")
 			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 			dpg.add_same_line()
 			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
@@ -1104,13 +1127,16 @@ def frbgui(filefilter=gdata['globfilter'],
 	dpg.set_value('dmstep', dmstep)
 	dmrange_cb('user', None)
 
+	# loadresults_cb('user2', ['B:\\dev\\frbrepeaters\\results', 'FRB121102_oostrum_525rows_Aug28.csv'])
+
 	dpg.start_dearpygui(primary_window='main') # blocks til closed
 	return gdata
 
 if __name__ == '__main__':
 	frbgui(
-		datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		maskfile=None,
+		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
+		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
+		maskfile='',
 		regionfile=None,
 		numtrials=20,
 		dmstep=0.5,

@@ -16,6 +16,9 @@
 *.jar
 *.rf
 *.tar
+*.mp4
+*.sfk
+*.veg
 data/*
 
 .ipynb_checkpoints/
