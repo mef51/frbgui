@@ -272,7 +272,7 @@ columns = [
 	'sigmay_error',
 	'angle_error',
 	'f_res (mhz)',
-	'time_res'
+	'time_res (s)'
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[]):

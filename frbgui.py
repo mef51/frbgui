@@ -52,7 +52,7 @@ def log_cb(sender, data):
 def error_log_cb(sender, data):
 	dpg.log_error(f"{sender}, {data}")
 
-def loaddata_cb(sender, data):
+def updatedata_cb(sender, data):
 	wfall = None
 	if 'fileidx' in data.keys():
 		filename = gdata['files'][data['fileidx']]
@@ -185,6 +185,14 @@ def loaddata_cb(sender, data):
 
 	if wfall.shape == gdata['wfall_original'].shape:
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
+		if dpg.get_value('EnableSubBGBox'):
+			tleft, tright = dpg.get_value('SubtractBGRegion')
+			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
+			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
+			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
+			print(wfall.shape)
+			wfall = driftrate.subtractbg(wfall, tleft, tright)
+
 
 	gdata['wfall'] = wfall
 	# gdata['ts']    = np.nanmean(wfall, axis=0) # time series at burstDM
@@ -329,10 +337,17 @@ def subsample_cb(sender, data):
 	try:
 		# Make a copy of the original fall, apply the masks, then downsample
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
+		if dpg.get_value('EnableSubBGBox'):
+			tleft, tright = dpg.get_value('SubtractBGRegion')
+			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
+			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
+			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
+			print(wfall.shape)
+			wfall = driftrate.subtractbg(wfall, tleft, tright)
 		subfall = driftrate.subsample(wfall, numf, numt)
 		gdata['wfall'] = subfall
 		log_cb('subsample_cb', (numf, numt))
-		loaddata_cb('subsample_cb', {'subsample': True})
+		updatedata_cb('subsample_cb', {'subsample': True})
 		return subfall
 	except (ValueError, ZeroDivisionError) as e:
 		error_log_cb('subsample_cb', (numf, numt, e))
@@ -360,7 +375,7 @@ def clearfilter_cb(s, d):
 
 def burstselect_cb(sender, data):
 	fileidx = dpg.get_value('burstselect')
-	loaddata_cb(sender, {'fileidx': fileidx})
+	updatedata_cb(sender, {'fileidx': fileidx})
 	log_cb(sender, 'Opening file {}'.format(gdata['files'][fileidx]))
 
 def exportmask_cb(sender, data):
@@ -378,7 +393,7 @@ def importmask_cb(sender, data):
 		masks = np.load(filename, allow_pickle=True)[0]
 		if type(masks) == dict:
 			gdata['masks'] = masks
-			loaddata_cb(sender, {'keepview': True})
+			updatedata_cb(sender, {'keepview': True})
 			masktable_cb(sender, None)
 		else:
 			error_log_cb(sender, 'invalid mask dictionary selected.')
@@ -394,7 +409,7 @@ def removemask_cb(sender, data):
 	if mask in gdata['masks'][gdata['currfile']]:
 		gdata['masks'][gdata['currfile']].remove(mask)
 		dpg.log_debug('removing {} from {} mask'.format(mask, gdata['currfile']))
-		loaddata_cb(sender, {'keepview': True})
+		updatedata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
 
 def masktable_cb(sender, data):
@@ -427,7 +442,7 @@ def sksgmask_cb(sender, data):
 		savgol_sigma=sigma,
 	)
 	gdata['sksgmask'] = sksgmask
-	loaddata_cb(sender, {'keepview': True})
+	updatedata_cb(sender, {'keepview': True})
 
 def resulttable_cb(sender, data):
 	coords = dpg.get_table_selections('Resulttable')
@@ -464,7 +479,7 @@ def mousemask_cb(sender, data):
 		if mask not in gdata['masks'][gdata['currfile']]:
 			gdata['masks'][gdata['currfile']].append(mask)
 
-		loaddata_cb(sender, {'keepview': True})
+		updatedata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
 		log_cb('mousemask_cb ', [[tchan, fchan], isOnWaterfall])
 	else:
@@ -887,6 +902,16 @@ def getSubbursts():
 		subburstsobj[subname] = subburst
 	return subburstsobj
 
+def subtractbg_cb(sender, data):
+	if sender == 'EnableSubBGBox':
+		toggle_config(sender, {'kwargs': ['enabled'], 'items': ['SubtractBGRegion']})
+		maxval = gdata['extents'][1]
+		dpg.configure_item('SubtractBGRegion', max_value=maxval)
+		if dpg.get_value('SubtractBGRegion')[1] > maxval:
+			dpg.set_value('SubtractBGRegion', [0, maxval*0.2])
+
+	subsample_cb(sender, data)
+
 def helpmarker(message):
 	dpg.add_same_line()
 	dpg.add_text("(?)", color=[150, 150, 150], tip=message)
@@ -951,6 +976,18 @@ def frbgui(filefilter=gdata['globfilter'],
 				callback=dmrange_cb)
 
 		with dpg.collapsing_header("2. Waterfall Cleanup", default_open=True):
+			with dpg.tree_node('Subtract Background', default_open=True):
+				dpg.add_checkbox('EnableSubBGBox', label='Subtract background sample', callback=subtractbg_cb)
+				dpg.add_drag_float2('SubtractBGRegion',
+					label='t_start (ms), t_end (ms)',
+					width=280,
+					enabled=False,
+					max_value=100,
+					speed=0.5,
+					default_value=[0, 25],
+					callback=subtractbg_cb
+				)
+
 			with dpg.tree_node('Masking', default_open=True):
 				dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
 				dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
