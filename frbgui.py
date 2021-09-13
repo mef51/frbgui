@@ -107,6 +107,9 @@ def updatedata_cb(sender, data):
 		dpg.set_value('numfreqinput', wfall.shape[0])
 		dpg.set_value('numtimeinput', wfall.shape[1])
 
+		# update meta controls
+		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
+
 		# update result controls
 		if gdata['resultsdf'] is not None:
 			hasResults = burstname in gdata['resultsdf'].index.unique()
@@ -150,7 +153,7 @@ def updatedata_cb(sender, data):
 		# setup burst splitting
 		for regid in range(1, gdata['multiburst']['numregions']):
 			if dpg.does_item_exist('RegionSelector{}'.format(regid)):
-				maxval = cropwfall(wfall).shape[1]*gdata['burstmeta']['tres']
+				maxval = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth')).shape[1]*gdata['burstmeta']['tres']
 				dpg.configure_item('Region{}'.format(regid), max_value=maxval)
 		if burstname in gdata['multiburst']['regions']:
 			if not gdata['multiburst']['enabled']:
@@ -173,7 +176,7 @@ def updatedata_cb(sender, data):
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 
-		wfall_cr = cropwfall(wfall)
+		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 		bandwidth = gdata['extents'][3] - gdata['extents'][2]
 		duration = gdata['extents'][1] - gdata['extents'][0]
 		gdata['burstmeta']['fres'] = bandwidth / wfall_cr.shape[0]
@@ -202,21 +205,6 @@ def updatedata_cb(sender, data):
 	# gdata['pkidx'] = np.nanargmax(gdata['ts']) # pkidx at burstDM, for displaying across DMs
 
 	plotdata_cb(sender, data)
-
-def cropwfall(wfall, twidth=150, pkidx=None):
-	wfall = wfall.copy()
-	ts    = np.nanmean(wfall, axis=0)
-	if not pkidx:
-		pkidx = np.nanargmax(ts)
-
-	ledge, redge = pkidx-twidth, pkidx+twidth
-	if ledge < 0:
-		ledge = 0
-	if redge > wfall.shape[1]:
-		redge = wfall.shape[1]
-	# print('cropwfall:', wfall.shape, ledge, redge)
-
-	return wfall[..., ledge:redge]
 
 def getcorr2dtexture(corr, popt=None, p0=None):
 	plt.figure(figsize=(5, 5))
@@ -265,7 +253,7 @@ def plotdata_cb(sender, data):
 		gdata['displayedBurst'] = burstname
 		wfall = gdata['wfall']
 		wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
-		wfall_dd_cr = cropwfall(wfall_dd)
+		wfall_dd_cr = driftrate.cropwfall(wfall_dd, twidth=dpg.get_value('twidth'))
 	elif ('resultidx' in data) and (subname != burstname):
 		gdata['displayedBurst'] = subname
 		subbursts = getSubbursts()
@@ -345,7 +333,6 @@ def subsample_cb(sender, data):
 			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
-			print(wfall.shape)
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
 		subfall = driftrate.subsample(wfall, numf, numt)
 		gdata['wfall'] = subfall
@@ -519,12 +506,13 @@ def getCurrentBurst():
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
 	wfall = gdata['wfall'].copy()
-	wfall_cr = cropwfall(wfall)
+	wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 	burstDM = gdata['burstDM']
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
 def slope_cb(sender, data):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
+	dpg.configure_item('twidth', enabled=False) # display width is global atm. disabling after measurement to prevent bugs
 
 	if data is not None:
 		dpg.set_value('SlopeStatus', 'Status: Doing second pass...')
@@ -646,7 +634,20 @@ def loadresults_cb(sender, data):
 
 def exportresults_cb(sender, data):
 	resultsdf = gdata['resultsdf']
+
 	df = driftlaw.computeModelDetails(resultsdf)
+
+	if dpg.get_value('EnableSubBGBox'):
+		bgstart, bgend = dpg.get_value('SubtractBGRegion')
+		df['subbg_start (ms)'] = bgstart
+		df['subbg_end (ms)']   = bgend
+	if gdata['multiburst']['enabled']:
+		pass # need to rewrite how regions are stored in mem
+
+	wfall_cr = getCurrentBurst()[4]
+	df['fchans'] = wfall_cr.shape[0]
+	df['tchans'] = wfall_cr.shape[1]
+
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
@@ -657,8 +658,11 @@ def exportresults_cb(sender, data):
 	if sender == 'ExportPDFBtn':
 		dpg.configure_item('ExportPDFText', show=True)
 		dpg.set_value('ExportPDFText', 'Saving PDF...')
-		driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
-		dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
+		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
+		if success:
+			dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
+		else:
+			dpg.set_value('ExportPDFText', f'Permission Denied')
 
 def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
@@ -968,6 +972,11 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_input_text('freq_unit', label='Frequency Unit')
 			dpg.add_input_text('time_unit', label='Time Unit')
 			dpg.add_input_text('int_unit', label='Intensity Unit')
+			dpg.add_input_int('twidth', label='Display width (# time channels)',
+				default_value=150,
+				step=10,
+				callback=lambda s, d: updatedata_cb(s, {'fileidx': dpg.get_value('burstselect')})
+			)
 
 			dpg.add_text('Dedispersion Range for all Bursts: ')
 			dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
@@ -1037,14 +1046,14 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_button('ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
 
 		with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
+			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
+			dpg.add_same_line()
+			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
 			dpg.add_button("Load Results",
 				callback=lambda s, d:dpg.open_file_dialog(loadresults_cb, extensions='.csv'))
 			dpg.add_same_line()
 			dpg.add_text("LoadResultsWarning", color=(255, 0, 0),
 				default_value="Warning: will overwrite unsaved results")
-			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
-			dpg.add_same_line()
-			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
 			dpg.add_button('DeleteBurstBtn',
 				label="Delete this burst's results",
 				callback=deleteresults_cb,

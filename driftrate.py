@@ -143,6 +143,21 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
 	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
 	return extents, corrextents
 
+def cropwfall(wfall, twidth=150, pkidx=None):
+	wfall = wfall.copy()
+	ts    = np.nanmean(wfall, axis=0)
+	if not pkidx:
+		pkidx = np.nanargmax(ts)
+
+	ledge, redge = pkidx-twidth, pkidx+twidth
+	if ledge < 0:
+		ledge = 0
+	if redge > wfall.shape[1]:
+		redge = wfall.shape[1]
+	# print('cropwfall:', wfall.shape, ledge, redge)
+
+	return wfall[..., ledge:redge]
+
 def autocorr2d(data):
 
 	# Returns a 2D autocorrelation computed via an intermediate FFT
@@ -371,7 +386,12 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 	plt.figure(figsize=figsize)
 	ploti = itertools.count(start=1, step=1)
 	outputfile = f"{resultsfile.split('.')[0].split('/')[-1]}.pdf"
-	pdf = matplotlib.backends.backend_pdf.PdfPages(outputfile)
+
+	try:
+		pdf = matplotlib.backends.backend_pdf.PdfPages(outputfile)
+	except PermissionError as e:
+		return False
+
 	if type(masks) == str: # filename
 		masks = np.load(masks, allow_pickle=True)[0]
 
@@ -380,17 +400,28 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 		data = np.load(file)
 
 		wfall = data['wfall']
-		df, dt = row['f_res (mhz)'], row['time_res']*1000
+		wfall = cropwfall(wfall, twidth=round(row['tchans']/2))
+		df, dt = row['f_res (mhz)'], row['time_res (s)']*1000
 		bandwidth = data['dfs'][-1] - data['dfs'][0]
 		lowest_freq = data['dfs'][0]
+		extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
+
+		if 'subbg_start (ms)' in row:
+			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
+			timerange = [round(extents[0]), round(extents[1])]
+			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
+			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
+			wfall = subtractbg(wfall, tleft, tright)
 
 		# dedisperse
 		ddm = row['DM'] - data['DM']
 		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt)
 
 		# apply masks
-		if masks is not None:
-			mask = [masks[k] for k in masks.keys() if name in k][0]
+		if masks is not None and masks != []:
+			mask = [masks[k] for k in masks.keys() if name in k]
+			if mask == []: mask = [[]]
+			mask = mask[0]
 			for m in mask:
 				if m < len(wfall):
 					wfall[m] = 0
@@ -412,7 +443,6 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 		popt = [row['amplitude'], row['xo'], row['yo'], row['sigmax'], row['sigmay'], row['angle']]
 
 		fitmap = makeFitmap(popt, corr)
-		extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
 
 		currentplot = next(ploti)
 		plt.subplot(nrows, ncols, currentplot)
@@ -440,6 +470,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 	plt.tight_layout()
 	pdf.savefig(plt.gcf())
 	pdf.close()
+	return True
 
 def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,
 				lowest_freq, ploti=None):

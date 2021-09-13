@@ -299,3 +299,6 @@ meeting notes:
 	* add more metadata to results csv (ie subtract bg, region split, subsampling, etc. Everything that is needed to reproduce)
 * num results is not updated after loading results
 * export result is broken for cropped waterfalls
+
+## sept 13
+* regions, subtract bg, and twidth should be stored by burst but are currently global. storing by burst will let me export the measurement parameters by burst
