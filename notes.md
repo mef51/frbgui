@@ -291,3 +291,11 @@ meeting notes:
 ## sept 8
 * subsample_cb and applyMasks and subtractbg can probably be refactored into a single 'cleanWaterfall' function
 * check resolution of aggarwal.. subsamplecb affects the resolutions differently for this dataset
+
+## sept 11
+* batch measure feature: add bursts to a list and measure all with one button
+* its very easy to discard low snr bursts. this is a bias
+* splitting is broken for burst 121 aggarwal and splitting is not implemented for pdf export
+	* add more metadata to results csv (ie subtract bg, region split, subsampling, etc. Everything that is needed to reproduce)
+* num results is not updated after loading results
+* export result is broken for cropped waterfalls

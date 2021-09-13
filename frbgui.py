@@ -112,6 +112,8 @@ def updatedata_cb(sender, data):
 			hasResults = burstname in gdata['resultsdf'].index.unique()
 			dpg.configure_item('PrevDM', enabled=hasResults)
 			dpg.configure_item('NextDM', enabled=hasResults)
+			dpg.configure_item('ExportCSVBtn', enabled=hasResults)
+			dpg.configure_item('ExportPDFBtn', enabled=hasResults)
 			dpg.configure_item('DeleteBurstBtn', enabled=False) # unimplemented
 			dpg.configure_item('DeleteAllBtn', enabled=False) # unimplemented
 			dpg.configure_item('EnableP0Box', enabled=hasResults)
@@ -139,6 +141,7 @@ def updatedata_cb(sender, data):
 				initializeP0Group()
 			else:
 				updateResultTable(pd.DataFrame())
+				gdata['burstdf'] = pd.DataFrame()
 				gdata['p0'] = None
 				dpg.set_value('EnableP0Box', False)
 				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
@@ -376,6 +379,10 @@ def clearfilter_cb(s, d):
 def burstselect_cb(sender, data):
 	fileidx = dpg.get_value('burstselect')
 	updatedata_cb(sender, {'fileidx': fileidx})
+	if 'burstdf' in gdata:
+		dpg.set_value('NumMeasurementsText', "# of Measurements for this burst: {}".format(len(gdata['burstdf'])))
+	if gdata['resultsdf'] is not None and not gdata['resultsdf'].empty:
+		dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	log_cb(sender, 'Opening file {}'.format(gdata['files'][fileidx]))
 
 def exportmask_cb(sender, data):
@@ -880,7 +887,7 @@ def getSubbursts():
 			region = dpg.get_value(regionname)
 			trange = [gdata['extents'][0], gdata['extents'][1]]
 			for i, edge in enumerate(region):
-				region[i] = np.interp(edge, trange, [0, gdata['wfall_original'].shape[1]])
+				region[i] = round(np.interp(edge, trange, [0, gdata['wfall_original'].shape[1]]))
 
 			regiontype =  dpg.get_value(typename)
 			if regiontype == 0:   # Background
@@ -1052,7 +1059,7 @@ def frbgui(filefilter=gdata['globfilter'],
 				enabled=False
 			)
 
-			dpg.add_text('NusMeasurementsText', default_value="# of Measurements for this burst: (none)")
+			dpg.add_text('NumMeasurementsText', default_value="# of Measurements for this burst: (none)")
 			dpg.add_text('TotalNumMeasurementsText', default_value="Total # of Measurements: (none)")
 			with dpg.group("DMselector", horizontal=True):
 				dpg.add_button("PrevDM", arrow=True, direction=dpg.mvDir_Left, enabled=False,
