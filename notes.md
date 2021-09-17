@@ -302,3 +302,9 @@ meeting notes:
 
 ## sept 13
 * regions, subtract bg, and twidth should be stored by burst but are currently global. storing by burst will let me export the measurement parameters by burst
+
+## sept 16
+* done measurement param export/reload, fix multiburst next
+
+## sept 18
+* fix multiburst. was reading the wrong time extent when splitting up subbursts

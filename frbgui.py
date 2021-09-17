@@ -276,7 +276,7 @@ def plotdata_cb(sender, data):
 	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
 	if ('resultidx' not in data) or (subname == burstname):
 		gdata['displayedBurst'] = burstname
-		wfall = gdata['wfall']
+		wfall = gdata['wfall'].copy()
 		wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
 		wfall_dd_cr = driftrate.cropwfall(wfall_dd, twidth=dpg.get_value('twidth'))
 	elif ('resultidx' in data) and (subname != burstname):
@@ -286,7 +286,7 @@ def plotdata_cb(sender, data):
 		wfall_cr = subburst
 		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
 		dmframe = subburstdf.loc[subname].set_index('DM')
-		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])][5:11]
+		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
 
 	tseries = np.nanmean(wfall_dd_cr, axis=0)
 
@@ -817,7 +817,7 @@ def enablesplitting_cb(sender, data):
 def exportregions_cb(sender, data):
 	regions = getAllRegions()
 	saveobj = {gdata['displayedBurst']: regions}
-	filename = 'burstregions_{}.npy'.format('oostrum')
+	filename = 'burstregions_{}.npy'.format('aggarwal')
 	if os.path.exists(filename):
 		loadobj = np.load(filename, allow_pickle=True)[0]
 		loadobj[gdata['displayedBurst']] = regions
@@ -883,15 +883,15 @@ def regionSelector():
 	with dpg.group('RegionSelector{}'.format(regid), horizontal=True, parent='SplittingSection',
 		before=before):
 		dpg.add_drag_float2('Region{}'.format(regid),
-			label='',
+			label='(ms)',
 			width=280,
 			enabled=enabled,
 			max_value=maxval,
 			speed=0.5,
-			default_value=[0, 25],
+			default_value=[0, maxval],
 			callback=drawregion_cb
 		)
-		helpmarker("Ctrl+click to edit")
+		helpmarker("double click to edit")
 		dpg.add_radio_button('RegionType{}'.format(regid), items=["Background", "Burst"],
 			horizontal=True,
 			callback=drawregion_cb,
@@ -914,9 +914,9 @@ def getSubbursts():
 			typename = 'RegionType{}'.format(regid)
 
 			region = dpg.get_value(regionname)
-			trange = [gdata['extents'][0], gdata['extents'][1]]
+			trange = driftrate.getExtents(wfall_cr, df=df, dt=dt, lowest_freq=lowest_freq)[0][:2]
 			for i, edge in enumerate(region):
-				region[i] = round(np.interp(edge, trange, [0, gdata['wfall_original'].shape[1]]))
+				region[i] = round(np.interp(edge, trange, [0, wfall_cr.shape[1]]))
 
 			regiontype =  dpg.get_value(typename)
 			if regiontype == 0:   # Background
@@ -1215,8 +1215,7 @@ if __name__ == '__main__':
 		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		maskfile='',
-		regionfile=None,
-		numtrials=20,
-		dmstep=0.5,
+		regionfile='burstregions_aggarwal.npy',
+		dmstep=2,
 		dmrange=[560, 570]
 	)
