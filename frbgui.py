@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import warnings
-from your.utils.rfi import sk_sg_filter_raw
+from your.utils.rfi import sk_sg_filter
 warnings.filterwarnings("ignore")
 
 dpg.show_logger()
@@ -110,7 +110,7 @@ def updatedata_cb(sender, data):
 		# update meta controls
 		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
 
-		# update result controls
+		# update result controls and reproduce measurement state
 		if gdata['resultsdf'] is not None:
 			hasResults = burstname in gdata['resultsdf'].index.unique()
 			dpg.configure_item('PrevDM', enabled=hasResults)
@@ -125,6 +125,29 @@ def updatedata_cb(sender, data):
 					gdata['burstdf'] = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 				else:
 					gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+
+				# reload waterfall cleanup
+				cols = ['tsamp_width', 'subbg_start (ms)', 'subbg_end (ms)', 'sksigma', 'skwindow']
+				twidth, subbgstart, subbgend, sksigma, skwindow = gdata['burstdf'][cols].iloc[0]
+				if sender == 'burstselect':
+					dpg.set_value('twidth', int(twidth))
+					if not pd.isnull(subbgstart):
+						dpg.set_value('EnableSubBGBox', True)
+						toggle_config('EnableSubBGBox', {'kwargs': ['enabled'], 'items': ['SubtractBGRegion']})
+						dpg.set_value('SubtractBGRegion', [subbgstart, subbgend])
+					else:
+						dpg.set_value('EnableSubBGBox', False)
+						toggle_config('EnableSubBGBox', {'kwargs': ['enabled'], 'items': ['SubtractBGRegion']})
+
+					skitems = ['SKSGSigmaInput','SKSGWindowInput','SKSGStatus']
+					if not pd.isnull(sksigma):
+						dpg.set_value("EnableSKSGMaskBox", True)
+						dpg.set_value('SKSGSigmaInput', int(sksigma))
+						dpg.set_value('SKSGWindowInput', int(skwindow))
+						toggle_config('EnableSKSGMaskBox', {'kwargs': ['enabled'], 'items': skitems})
+					else:
+						dpg.set_value('EnableSKSGMaskBox', False)
+						toggle_config('EnableSKSGMaskBox', {'kwargs': ['enabled'], 'items': skitems})
 
 				# check if subsampling is needed (for eg. if results have been loaded)
 				fres, tres = gdata['burstdf'][['f_res (mhz)', 'time_res (s)']].iloc[0]
@@ -149,6 +172,9 @@ def updatedata_cb(sender, data):
 				dpg.set_value('EnableP0Box', False)
 				items = ['P0AllDMsBox','AmplitudeDrag','AngleDrag','x0y0Drag','SigmaXYDrag', 'RedoBtn']
 				toggle_config('EnableP0Box', {'kwargs': ['enabled'], 'items': items})
+
+			dpg.set_value('NumMeasurementsText', "# of Measurements for this burst: {}".format(len(gdata['burstdf'])))
+			dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 
 		# setup burst splitting
 		for regid in range(1, gdata['multiburst']['numregions']):
@@ -196,7 +222,6 @@ def updatedata_cb(sender, data):
 			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
-			print(wfall.shape)
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
 
 
@@ -366,10 +391,6 @@ def clearfilter_cb(s, d):
 def burstselect_cb(sender, data):
 	fileidx = dpg.get_value('burstselect')
 	updatedata_cb(sender, {'fileidx': fileidx})
-	if 'burstdf' in gdata:
-		dpg.set_value('NumMeasurementsText', "# of Measurements for this burst: {}".format(len(gdata['burstdf'])))
-	if gdata['resultsdf'] is not None and not gdata['resultsdf'].empty:
-		dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	log_cb(sender, 'Opening file {}'.format(gdata['files'][fileidx]))
 
 def exportmask_cb(sender, data):
@@ -427,7 +448,7 @@ def sksgmask_cb(sender, data):
 
 	sigma, window = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
 	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
-	sksgmask = sk_sg_filter_raw(
+	sksgmask = sk_sg_filter(
 		data=gdata['wfall_original'].copy().T,
 		foff=df,
 		tsamp=dt/1000,
@@ -512,7 +533,8 @@ def getCurrentBurst():
 
 def slope_cb(sender, data):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
-	dpg.configure_item('twidth', enabled=False) # display width is global atm. disabling after measurement to prevent bugs
+	# display width is global atm. disabling after measurement to prevent bugs
+	dpg.configure_item('twidth', enabled=False)
 
 	if data is not None:
 		dpg.set_value('SlopeStatus', 'Status: Doing second pass...')
@@ -550,6 +572,20 @@ def slope_cb(sender, data):
 		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
 
 	# Save results
+
+	# add measurement info to row (things needed to reproduce/reload the measurement)
+	# TODO: region info
+	tsamp_width = dpg.get_value('twidth')
+	fchans, tchans = wfall_cr.shape
+	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
+	if dpg.get_value('EnableSubBGBox'):
+		subbgstart, subbgend = dpg.get_value('SubtractBGRegion')
+	if dpg.get_value('EnableSKSGMaskBox'):
+		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
+	cols = ['fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
+	row = [fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
+	burstdf[cols] = row
+
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
@@ -560,7 +596,7 @@ def slope_cb(sender, data):
 		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
 	print(gdata['resultsdf'])
 
-	burstdf = burstdf.loc[burstname]
+	# burstdf = burstdf.loc[burstname] # remove??
 	gdata['burstdf'] = burstdf
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
@@ -572,7 +608,7 @@ def slope_cb(sender, data):
 	dpg.configure_item('ExportPDFBtn', enabled=True)
 	dpg.configure_item('EnableP0Box', enabled=True)
 	initializeP0Group()
-	if gdata['multiburst']['enabled']:
+	if gdata['multiburst']['enabled']: # simplify this if to just updateResultTable(burstdf)??
 		updateResultTable(subburstdf)
 	else:
 		updateResultTable(burstdf)
@@ -636,17 +672,6 @@ def exportresults_cb(sender, data):
 	resultsdf = gdata['resultsdf']
 
 	df = driftlaw.computeModelDetails(resultsdf)
-
-	if dpg.get_value('EnableSubBGBox'):
-		bgstart, bgend = dpg.get_value('SubtractBGRegion')
-		df['subbg_start (ms)'] = bgstart
-		df['subbg_end (ms)']   = bgend
-	if gdata['multiburst']['enabled']:
-		pass # need to rewrite how regions are stored in mem
-
-	wfall_cr = getCurrentBurst()[4]
-	df['fchans'] = wfall_cr.shape[0]
-	df['tchans'] = wfall_cr.shape[1]
 
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
