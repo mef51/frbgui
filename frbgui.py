@@ -12,6 +12,8 @@ warnings.filterwarnings("ignore")
 
 dpg.show_logger()
 
+twidth_default = 150
+
 # GUI data is stored in this object. Defaults initialized here and at the bottom
 gdata = {
 	'globfilter'     : '*.npz',
@@ -45,7 +47,7 @@ def applyMasks(wfall):
 	return wfall
 
 def makeburstname(filename):
-	return filename[-10:].split('.')[0]
+	return filename.split(os.sep)[-1].split('.')[0]
 
 def log_cb(sender, data):
 	dpg.log_debug(f"{sender}, {data}")
@@ -54,7 +56,7 @@ def error_log_cb(sender, data):
 
 def updatedata_cb(sender, data):
 	wfall = None
-	if 'fileidx' in data.keys():
+	if 'fileidx' in data.keys(): # load burst from disk
 		filename = gdata['files'][data['fileidx']]
 		gdata['currfile'] = filename
 		burstname = makeburstname(filename)
@@ -72,17 +74,22 @@ def updatedata_cb(sender, data):
 					if key == 'dfs':
 						dfs = loaded[key]
 						df = (dfs[-1] - dfs[0])/ wfall.shape[0]
+						gdata['burstmeta']['fres_original'] = df
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
 						dt = loaded['duration'] / loaded['raw_shape'][1]*1000
-						print(dt, loaded['duration'], wfall.shape[1])
+						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
 						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+3))
 					else:
 						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
+
+				# post loading tweaks
+				if key == 'time_unit':
+					dpg.configure_item('duration', label=f"Data Duration ({loaded[key]})")
 
 			# initialize DM range elements
 			gdata['displayedDM'] = loaded['DM']
@@ -108,6 +115,7 @@ def updatedata_cb(sender, data):
 		dpg.set_value('numtimeinput', wfall.shape[1])
 
 		# update meta controls
+		dpg.set_value('twidth', twidth_default)
 		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
 
 		# update result controls and reproduce measurement state
@@ -202,9 +210,12 @@ def updatedata_cb(sender, data):
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 
-		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 		bandwidth = gdata['extents'][3] - gdata['extents'][2]
 		duration = gdata['extents'][1] - gdata['extents'][0]
+		twidth = duration/gdata['burstmeta']['tres_original']/2
+		dpg.set_value('twidth', round(twidth * (wfall.shape[1]/gdata['wfall_original'].shape[1])))
+
+		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 		gdata['burstmeta']['fres'] = bandwidth / wfall_cr.shape[0]
 		gdata['burstmeta']['tres'] = duration / wfall_cr.shape[1]
 
@@ -292,6 +303,7 @@ def plotdata_cb(sender, data):
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
+	dpg.set_value('twidth_ms', 2*dpg.get_value('twidth')*dt)
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
@@ -504,6 +516,7 @@ def dmrange_cb(sender, data):
 	dmrange   = dpg.get_value('dmrange')
 	dmrange   = np.round(dmrange, 4) # dpg.get_value introduces rounding errors
 	numtrials = dpg.get_value('numtrials')
+	dmstep = round(dpg.get_value('dmstep'), 3)
 	burstDM = gdata['burstDM']
 	if dmrange[1] < dmrange[0]:
 		dmrange.sort()
@@ -514,12 +527,12 @@ def dmrange_cb(sender, data):
 		dpg.configure_item('DMWarning', show=False)
 
 	if sender == 'dmstep' or sender == 'user':
-		numtrials = round((dmrange[1] - dmrange[0])/dpg.get_value('dmstep'))
+		numtrials = round((dmrange[1] - dmrange[0])/dmstep)+1
 		dpg.set_value('numtrials', numtrials)
 	elif sender == 'numtrials':
-		dmstep = (dmrange[1] - dmrange[0])/numtrials
+		dmstep = round((dmrange[1] - dmrange[0])/numtrials, 3)
 		dpg.set_value('dmstep', dmstep)
-	gdata['trialDMs'] = np.linspace(dmrange[0], dmrange[1], num=numtrials)
+	gdata['trialDMs'] = np.arange(dmrange[0], dmrange[1]+dmstep, step=dmstep)
 
 def getCurrentBurst():
 	""" Return the currently loaded waterfall at its burst DM """
@@ -533,8 +546,6 @@ def getCurrentBurst():
 
 def slope_cb(sender, data):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
-	# display width is global atm. disabling after measurement to prevent bugs
-	dpg.configure_item('twidth', enabled=False)
 
 	if data is not None:
 		dpg.set_value('SlopeStatus', 'Status: Doing second pass...')
@@ -755,12 +766,14 @@ def initializeP0Group():
 	p0 = []
 	burstname = dpg.get_value('burstname').replace(',', '')
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
+	wfall_cr = getCurrentBurst()[-2]
 	p0 = getOptimalFit(subburstdf)
 
 	gdata['p0'] = p0
 	dpg.set_value("AmplitudeDrag", p0[0])
 	dpg.set_value("AngleDrag", p0[5])
-	dpg.set_value("x0y0Drag", [p0[1], p0[2]])
+	# solution will always be near the center
+	dpg.set_value("x0y0Drag", [wfall_cr.shape[1], wfall_cr.shape[0]])
 	dpg.set_value("SigmaXYDrag", [p0[3], p0[4]])
 	for item in ['AmplitudeDrag', 'AngleDrag', 'x0y0Drag', 'SigmaXYDrag']:
 		val = dpg.get_value(item)
@@ -997,11 +1010,12 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_input_text('freq_unit', label='Frequency Unit')
 			dpg.add_input_text('time_unit', label='Time Unit')
 			dpg.add_input_text('int_unit', label='Intensity Unit')
-			dpg.add_input_int('twidth', label='Display width (# time channels)',
-				default_value=150,
+			dpg.add_input_int('twidth', label='Display width (# chans)',
+				default_value=twidth_default,
 				step=10,
-				callback=lambda s, d: updatedata_cb(s, {'fileidx': dpg.get_value('burstselect')})
+				callback=plotdata_cb
 			)
+			dpg.add_input_float('twidth_ms', label='Display width (ms)', enabled=False)
 
 			dpg.add_text('Dedispersion Range for all Bursts: ')
 			dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
@@ -1216,6 +1230,6 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		maskfile='',
 		regionfile='burstregions_aggarwal.npy',
-		dmstep=2,
+		dmstep=0.5,
 		dmrange=[560, 570]
 	)

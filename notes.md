@@ -308,3 +308,13 @@ meeting notes:
 
 ## sept 18
 * fix multiburst. was reading the wrong time extent when splitting up subbursts
+
+## sept 19
+* check time downsampling
+* B025 at DM 563.6315, 564.2, 564.7 has the wrong shape
+* trial DM range is wrong with dm step = 0.5
+
+## sept 20
+* B025 problem seems to be that pkidx is finding a different peak as the dm changes. and it does kinda seem like there's another burst in there. but the real issue is that's its low snr, and i should just downsample in time to ensure i get the right burst
+* bug: downsampling in time changes length of burst
+	* redo twidth handling to respect displayed duration instead of displayed # number of channels
