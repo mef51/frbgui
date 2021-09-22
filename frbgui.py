@@ -605,6 +605,7 @@ def slope_cb(sender, data):
 			df = gdata['resultsdf']
 			gdata['resultsdf'] = df.drop(df[df.index.str.startswith(burstname)].index)
 		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
+	backupresults()
 	print(gdata['resultsdf'])
 
 	# burstdf = burstdf.loc[burstname] # remove??
@@ -657,6 +658,7 @@ def redodm_cb(sender, data):
 		data['resultidx'] = resultidx
 	else:
 		updateResultTable(gdata['burstdf'])
+	backupresults()
 	plotdata_cb(sender, data)
 
 def getAllRegions():
@@ -699,6 +701,14 @@ def exportresults_cb(sender, data):
 			dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
 		else:
 			dpg.set_value('ExportPDFText', f'Permission Denied')
+
+def backupresults():
+	resultsdf = gdata['resultsdf']
+	df = driftlaw.computeModelDetails(resultsdf)
+	datestr = datetime.now().strftime('%b%d')
+	prefix = 'backup'
+	filename = '{}_results_{}.csv'.format(prefix, datestr)
+	df.to_csv(filename)
 
 def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
@@ -768,13 +778,16 @@ def initializeP0Group():
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 	wfall_cr = getCurrentBurst()[-2]
 	p0 = getOptimalFit(subburstdf)
+	p0f = [p0i.iloc[0] for p0i in p0]
+	if p0f[0] < 0:
+		p0f = [-p0fi if p0fi < 0 else p0fi for p0fi in p0f]
 
 	gdata['p0'] = p0
-	dpg.set_value("AmplitudeDrag", p0[0])
-	dpg.set_value("AngleDrag", p0[5])
+	dpg.set_value("AmplitudeDrag", p0f[0])
+	dpg.set_value("AngleDrag", p0f[5])
 	# solution will always be near the center
 	dpg.set_value("x0y0Drag", [wfall_cr.shape[1], wfall_cr.shape[0]])
-	dpg.set_value("SigmaXYDrag", [p0[3], p0[4]])
+	dpg.set_value("SigmaXYDrag", [p0f[3], p0f[4]])
 	for item in ['AmplitudeDrag', 'AngleDrag', 'x0y0Drag', 'SigmaXYDrag']:
 		val = dpg.get_value(item)
 		if type(val) == list:

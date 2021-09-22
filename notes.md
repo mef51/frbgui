@@ -304,7 +304,7 @@ meeting notes:
 * regions, subtract bg, and twidth should be stored by burst but are currently global. storing by burst will let me export the measurement parameters by burst
 
 ## sept 16
-* done measurement param export/reload, fix multiburst next
+* done measurement param export/reload, fix multiburst region splitting next
 
 ## sept 18
 * fix multiburst. was reading the wrong time extent when splitting up subbursts
@@ -318,3 +318,10 @@ meeting notes:
 * B025 problem seems to be that pkidx is finding a different peak as the dm changes. and it does kinda seem like there's another burst in there. but the real issue is that's its low snr, and i should just downsample in time to ensure i get the right burst
 * bug: downsampling in time changes length of burst
 	* redo twidth handling to respect displayed duration instead of displayed # number of channels
+
+## sept 21
+* added a backup feature
+* check twidth loading
+* check nans in output csv
+* paginate pdf files so that you dont have a humongo pdf
+* oops i never implemented regions in plotResults
