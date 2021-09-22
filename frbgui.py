@@ -485,6 +485,7 @@ def updateResultTable(resultsdf):
 
 	# subset of driftrate.columns:
 	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'theta', 'center_f']
+	columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
 	dpg.set_headers('Resulttable', columns)
 
 	# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
@@ -544,6 +545,19 @@ def getCurrentBurst():
 	burstDM = gdata['burstDM']
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
+def getMeasurementInfo(wfall_cr):
+	# TODO: region info
+	tsamp_width = dpg.get_value('twidth')
+	fchans, tchans = wfall_cr.shape
+	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
+	if dpg.get_value('EnableSubBGBox'):
+		subbgstart, subbgend = dpg.get_value('SubtractBGRegion')
+	if dpg.get_value('EnableSKSGMaskBox'):
+		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
+	cols = ['fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
+	row = [fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
+	return cols, row
+
 def slope_cb(sender, data):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 
@@ -568,7 +582,6 @@ def slope_cb(sender, data):
 			subdf = subdf.append(retdf)
 
 		burstdf = burstdf.append(subdf)
-		subburstdf = burstdf.copy()
 
 	# Do a second pass using the best p0 just found
 	# TODO: only repeat bad fits
@@ -582,21 +595,11 @@ def slope_cb(sender, data):
 		# todo: find bad dms
 		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
 
-	# Save results
-
-	# add measurement info to row (things needed to reproduce/reload the measurement)
-	# TODO: region info
-	tsamp_width = dpg.get_value('twidth')
-	fchans, tchans = wfall_cr.shape
-	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
-	if dpg.get_value('EnableSubBGBox'):
-		subbgstart, subbgend = dpg.get_value('SubtractBGRegion')
-	if dpg.get_value('EnableSKSGMaskBox'):
-		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
-	cols = ['fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
-	row = [fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
+	# Add measurement info to row (things needed to reproduce/reload the measurement)
+	cols, row = getMeasurementInfo(wfall_cr)
 	burstdf[cols] = row
 
+	# Save results
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
@@ -620,10 +623,7 @@ def slope_cb(sender, data):
 	dpg.configure_item('ExportPDFBtn', enabled=True)
 	dpg.configure_item('EnableP0Box', enabled=True)
 	initializeP0Group()
-	if gdata['multiburst']['enabled']: # simplify this if to just updateResultTable(burstdf)??
-		updateResultTable(subburstdf)
-	else:
-		updateResultTable(burstdf)
+	updateResultTable(burstdf)
 	plotdata_cb(sender, data)
 
 def redodm_cb(sender, data):
@@ -636,11 +636,13 @@ def redodm_cb(sender, data):
 		subbursts = getSubbursts()
 		wfall_cr = subbursts[displayedname]
 
+	print('redoing ', displayedname, gdata['displayedDM'])
 	result, burstdf = driftrate.processDMRange(
 		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
 		df, dt, lowest_freq, p0=p0
 	)
-	print('redoing ', displayedname, gdata['displayedDM'])
+	cols, row = getMeasurementInfo(wfall_cr)
+	burstdf[cols] = row
 	df = gdata['resultsdf']
 	df[(df.index == displayedname) & (df['DM'] == gdata['displayedDM'])] = burstdf
 
@@ -696,7 +698,7 @@ def exportresults_cb(sender, data):
 	if sender == 'ExportPDFBtn':
 		dpg.configure_item('ExportPDFText', show=True)
 		dpg.set_value('ExportPDFText', 'Saving PDF...')
-		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
+		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'], regionsfile=gdata['multiburst']['regions'])
 		if success:
 			dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
 		else:
@@ -926,7 +928,7 @@ def regionSelector():
 		dpg.add_button('RemoveRegionBtn{}'.format(regid), label='X', enabled=enabled, callback=removeregion_cb)
 	gdata['multiburst']['numregions'] += 1
 
-subburst_suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']
+subburst_suffixes = driftrate.subburst_suffixes
 def getSubbursts():
 	if not gdata['multiburst']['enabled']:
 		return []
@@ -960,7 +962,7 @@ def getSubbursts():
 	subburstsobj = {}
 	for subburst, suffix in zip(subbursts, subburst_suffixes):
 		subburst = np.concatenate((background, subburst, background), axis=1)
-		subname = burstname +'_'+ suffix
+		subname = burstname +'_'+ suffix # '_' is used in plotResults to split names
 		subburstsobj[subname] = subburst
 	return subburstsobj
 
@@ -1156,7 +1158,7 @@ def frbgui(filefilter=gdata['globfilter'],
 			with dpg.group('ResultsGroup'):
 				dpg.add_table('Resulttable', [], height=10, parent='ResultsGroup', callback=resulttable_cb)
 
-			dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="FRBName")
+			dpg.add_input_text('ExportPrefix', label='Filename Prefix', default_value="Test")
 			dpg.add_button('ExportCSVBtn', label="Export Results CSV", callback=exportresults_cb, enabled=False)
 			dpg.add_same_line()
 			dpg.add_text('ExportCSVText', default_value=' ', show=True, color=(0, 255, 0))
@@ -1241,8 +1243,8 @@ if __name__ == '__main__':
 	frbgui(
 		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		maskfile='',
+		maskfile='aggarwalmasks_sept12.npy',
 		regionfile='burstregions_aggarwal.npy',
-		dmstep=0.5,
+		dmstep=5,
 		dmrange=[560, 570]
 	)

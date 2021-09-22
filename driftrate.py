@@ -219,6 +219,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 			perr = np.sqrt(np.diag(pcov))
 			popt = list(popt); perr = list(perr) # avoid type errors
 
+		if np.isnan(popt).any():
+			raise ValueError
 		if verbose: print('fit parameters:', popt)
 	except (RuntimeError, ValueError):
 		if verbose: print('no fit found')
@@ -376,7 +378,33 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 	plt.tight_layout()
 	plt.show()
 
-def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=(14, 16), nrows=6, ncols=4):
+subburst_suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']
+def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
+	background = None
+	subbursts  = []
+	for regname, region in regions.items():
+		trange = getExtents(wfall_cr, df=df, dt=dt, lowest_freq=lowest_freq)[0][:2]
+		# map time to channel number
+		reg_chan = [0, 0]
+		for i, edge in enumerate(region):
+			reg_chan[i] = round(np.interp(edge, trange, [0, wfall_cr.shape[1]]))
+
+		regiontype =  0 if 'background' in regname else 1
+		if regiontype == 0:   # Background
+			background = wfall_cr[:, reg_chan[0]:reg_chan[1]]
+		elif regiontype == 1: # Burst
+			subburst = wfall_cr[:, reg_chan[0]:reg_chan[1]]
+			subbursts.append(subburst)
+
+	# pad with background
+	# for subburst in subbursts:
+	subburstsobj = {}
+	for subburst, suffix in zip(subbursts, subburst_suffixes):
+		subburst = np.concatenate((background, subburst, background), axis=1)
+		subburstsobj[suffix] = subburst
+	return subburstsobj
+
+def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize=(14, 16), nrows=6, ncols=4):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -393,29 +421,36 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 		return False
 
 	if type(masks) == str: # filename
-		masks = np.load(masks, allow_pickle=True)[0]
+		if os.path.exists(masks):
+			masks = np.load(masks, allow_pickle=True)[0]
+	if type(regionsfile) == str:
+		if os.path.exists(regionsfile):
+			regionsfile = np.load(regionsfile, allow_pickle=True)[0]
 
 	for name, row in resultsdf.iterrows():
+		print('plotting', name)
+		if '_' in name:
+			subname = name
+			name, suffix = name.split('_')
+			regions = regionsfile[name]
+		else:
+			regions = None
+
 		file = [f for f in datafiles if name in f][0]
 		data = np.load(file)
 
 		wfall = data['wfall']
-		wfall = cropwfall(wfall, twidth=round(row['tchans']/2))
+		wfall = cropwfall(wfall, twidth=round(row['tchans']/2)) # 'tchans' is the original unsplit tchans
 		df, dt = row['f_res (mhz)'], row['time_res (s)']*1000
 		bandwidth = data['dfs'][-1] - data['dfs'][0]
 		lowest_freq = data['dfs'][0]
 		extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
-
 		if 'subbg_start (ms)' in row:
 			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
 			timerange = [round(extents[0]), round(extents[1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
 			wfall = subtractbg(wfall, tleft, tright)
-
-		# dedisperse
-		ddm = row['DM'] - data['DM']
-		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt)
 
 		# apply masks
 		if masks is not None and masks != []:
@@ -437,7 +472,13 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 			if round(factor) == factor:
 				wfall = subsample(wfall, wfall.shape[0], int(wfall.shape[1]/factor))
 
-		# TODO: split multibursts
+		if regions:
+			wfall = getSubbursts(wfall, df, dt, lowest_freq, regions)[suffix]
+			extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
+
+		# dedisperse
+		ddm = row['DM'] - data['DM']
+		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt)
 
 		corr = autocorr2d(wfall)
 		popt = [row['amplitude'], row['xo'], row['yo'], row['sigmax'], row['sigmay'], row['angle']]
@@ -445,16 +486,17 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionfile=None, figsize=
 		fitmap = makeFitmap(popt, corr)
 
 		currentplot = next(ploti)
+		bname = name if not regions else subname
 		plt.subplot(nrows, ncols, currentplot)
 		plt.imshow(wfall, origin='lower', interpolation='none', aspect='auto', extent=extents)
-		plt.title(f'{name}: DM = {round(row["DM"], 2)}')
+		plt.title(f'{bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('Time (ms)'), plt.ylabel('Freq (MHz)')
 
 		currentplot = next(ploti)
 		plt.subplot(nrows, ncols, currentplot)
 		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray', extent=corrextents)
 		plt.clim(0, np.max(corr)/20)
-		plt.title(f'Corr {name}: DM = {round(row["DM"], 2)}')
+		plt.title(f'Corr {bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
 		if popt[0] > 0:
 			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
