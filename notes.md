@@ -325,3 +325,20 @@ meeting notes:
 * check nans in output csv
 * paginate pdf files so that you dont have a humongo pdf
 * oops i never implemented regions in plotResults
+
+## sept 27
+* turns out GBT has REALLY good spectral resolution. When I saw that the data shape was (2048, 19456), I assumed it was 2048 freq channels and 19456 time channels. But checking the length of the dfs array in the fits file matches 19456 frequency channels. This corresponds to about 183khz resolution, or half the 366Khz resolution mentioned in the paper
+
+## sept 28
+* why does `driftrate._dedisperse` do nothing? why do the gajjar data look overdedispersed/unanchored?
+* turns out the gajjar data was dedispersed already, so passing `prepare=True` to pypulse was messing it up. Also data is upside down, just flip it.
+
+## sept 30
+* todo:add masking by range for 11B, 11G, 11M, 12A
+* load 11J with 256x256 subsampling to trigger autocorr2d stack trace
+
+## oct 1
+* fixing bugs revealed by first measurement pass
+	* remove raw_shape attribute in npz file (ie. the stored shape), just infer it from the stored waterfall
+* there's a problem with region saving
+	> load a burst, set regions, change burst, go back, export regions, saved key will be wrong

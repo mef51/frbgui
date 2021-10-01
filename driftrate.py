@@ -4,6 +4,7 @@ import numpy as np
 import scipy.optimize
 import itertools, glob
 import pandas as pd
+import os
 from tqdm import tqdm
 
 def findCenter(burstwindow):
@@ -152,8 +153,8 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 	ledge, redge = pkidx-twidth, pkidx+twidth
 	if ledge < 0:
 		ledge = 0
-	if redge > wfall.shape[1]:
-		redge = wfall.shape[1]
+	if redge == 0: # slicing w/ None takes the whole array
+		redge = None
 	# print('cropwfall:', wfall.shape, ledge, redge)
 
 	return wfall[..., ledge:redge]
@@ -440,12 +441,13 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 		data = np.load(file)
 
 		wfall = data['wfall']
+		storedshape = wfall.shape
 		wfall = cropwfall(wfall, twidth=round(row['tchans']/2)) # 'tchans' is the original unsplit tchans
-		df, dt = row['f_res (mhz)'], row['time_res (s)']*1000
+		df, dt_ms = row['f_res (mhz)'], row['time_res (s)']*1000
 		bandwidth = data['dfs'][-1] - data['dfs'][0]
 		lowest_freq = data['dfs'][0]
-		extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
-		if 'subbg_start (ms)' in row:
+		extents, corrextents = getExtents(wfall, df=df, dt=dt_ms, lowest_freq=lowest_freq)
+		if 'subbg_start (ms)' in row and not np.isnan(row['subbg_start (ms)']):
 			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
 			timerange = [round(extents[0]), round(extents[1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
@@ -463,22 +465,23 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 
 		# Check if the waterfall was subsampled before measuring.
 		# We want to reproduce that in the figure, so subsample the wfall before displaying it if needed
-		if bandwidth/data['raw_shape'][0] != df:
-			factor = df / (bandwidth/data['raw_shape'][0])
+		if abs(bandwidth)/storedshape[0] != df:
+			factor = df / (abs(bandwidth)/storedshape[0])
 			if round(factor) == factor:
 				wfall = subsample(wfall, int(wfall.shape[0]/factor), wfall.shape[1])
-		if data['duration']/data['raw_shape'][1] != dt:
-			factor = dt / (data['duration']/data['raw_shape'][1])
+		duration_ms = data['duration']*1000
+		if duration_ms/storedshape[1] != dt_ms:
+			factor = dt_ms / (duration_ms/storedshape[1])
 			if round(factor) == factor:
 				wfall = subsample(wfall, wfall.shape[0], int(wfall.shape[1]/factor))
 
 		if regions:
-			wfall = getSubbursts(wfall, df, dt, lowest_freq, regions)[suffix]
-			extents, corrextents = getExtents(wfall, df=df, dt=dt, lowest_freq=lowest_freq)
+			wfall = getSubbursts(wfall, df, dt_ms, lowest_freq, regions)[suffix]
+			extents, corrextents = getExtents(wfall, df=df, dt=dt_ms, lowest_freq=lowest_freq)
 
 		# dedisperse
 		ddm = row['DM'] - data['DM']
-		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt)
+		wfall = dedisperse(wfall, ddm, lowest_freq, df, dt_ms)
 
 		corr = autocorr2d(wfall)
 		popt = [row['amplitude'], row['xo'], row['yo'], row['sigmax'], row['sigmay'], row['angle']]

@@ -13,9 +13,14 @@ import matplotlib.pyplot as plt
 import pypulse, your
 import driftrate, driftlaw
 
-def loadpsrfits(filename):
-	ar = pypulse.Archive(filename, prepare=True)
-	print('loaded')
+def loadpsrfits(filename, dedisperse=True):
+	if dedisperse:
+		ar = pypulse.Archive(filename, prepare=True)
+	else:
+		ar = pypulse.Archive(filename, prepare=False)
+		ar.pscrunch()
+		ar.center()
+
 	wfall, subfall = ar.getData(), None
 	burstmetadata = {
 		'dt'        : ar.getTimes(),
@@ -29,7 +34,7 @@ def loadpsrfits(filename):
 		'int_unit'  : ar.getIntensityUnit(),
 		'telescope' : ar.getTelescope(),
 		'burstSN'   : ar.getSN(),
-		'raw_shape' : wfall.shape
+		'tbin'      : ar.getTbin(),
 	}
 	try:
 		subfall = driftrate.subsample(wfall, 32, wfall.shape[1]//8)

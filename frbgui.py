@@ -67,19 +67,20 @@ def updatedata_cb(sender, data):
 			wfall = loaded.astype(np.float64)
 		elif type(loaded) == np.lib.npyio.NpzFile:
 			wfall = loaded['wfall'].astype(np.float64)
+			storedshape = wfall.shape
 			gdata['burstmeta'] = {}
 			for key in loaded.files:
 				if key != 'wfall':
 					gdata['burstmeta'][key] = loaded[key]
 					if key == 'dfs':
 						dfs = loaded[key]
-						df = (dfs[-1] - dfs[0])/ wfall.shape[0]
+						df = abs((max(dfs) - min(dfs))/ wfall.shape[0])
 						gdata['burstmeta']['fres_original'] = df
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
-						dt = loaded['duration'] / loaded['raw_shape'][1]*1000
+						dt = loaded['duration'] / storedshape[1]*1000
 						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
@@ -188,7 +189,7 @@ def updatedata_cb(sender, data):
 		for regid in range(1, gdata['multiburst']['numregions']):
 			if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 				maxval = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth')).shape[1]*gdata['burstmeta']['tres']
-				dpg.configure_item('Region{}'.format(regid), max_value=maxval)
+				dpg.configure_item('Region{}'.format(regid), max_value=maxval, speed=maxval*0.005)
 		if burstname in gdata['multiburst']['regions']:
 			if not gdata['multiburst']['enabled']:
 				dpg.set_value('MultiBurstBox', True)
@@ -268,12 +269,12 @@ def getcorr2dtexture(corr, popt=None, p0=None):
 	w, h = fig.get_size_inches()*fig.dpi
 	return texture, int(w), int(h)
 
-def plotdata_cb(sender, data):
+def plotdata_cb(_, data):
 	if not data:
 		data = {}
 
 	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
-	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
+	lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
 	ddm = gdata['displayedDM'] - gdata['burstDM']
 	burstname = dpg.get_value('burstname').replace(',', '')
 
@@ -304,6 +305,7 @@ def plotdata_cb(sender, data):
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
 	dpg.set_value('twidth_ms', 2*dpg.get_value('twidth')*dt)
+	print(extents, df, dt, lowest_freq)
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
@@ -355,6 +357,14 @@ def plotdata_cb(sender, data):
 	tx = np.linspace(extents[0], extents[1], num=len(tseries))
 	dpg.add_line_series("TimeSeriesPlot", "TimeSeries", tx, tseries)
 
+def twidth_cb(_, data):
+	wfall_cr = getCurrentBurst()[4]
+	for regid in range(1, gdata['multiburst']['numregions']):
+		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
+			maxval = wfall_cr.shape[1]*gdata['burstmeta']['tres']
+			dpg.configure_item('Region{}'.format(regid), max_value=maxval, speed=maxval*0.005)
+	plotdata_cb(_, data)
+
 def subsample_cb(sender, data):
 	if sender == 'ResetSamplingBtn':
 		dpg.set_value('numfreqinput', gdata['wfall_original'].shape[0])
@@ -372,12 +382,13 @@ def subsample_cb(sender, data):
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
 		subfall = driftrate.subsample(wfall, numf, numt)
+	except (ValueError, ZeroDivisionError) as e:
+		error_log_cb('subsample_cb', (numf, numt, e))
+	else:
 		gdata['wfall'] = subfall
 		log_cb('subsample_cb', (numf, numt))
 		updatedata_cb('subsample_cb', {'subsample': True})
 		return subfall
-	except (ValueError, ZeroDivisionError) as e:
-		error_log_cb('subsample_cb', (numf, numt, e))
 
 def directory_cb(sender, data):
 	dpg.set_value('Dirtext', 'Selected: {}'.format(data[0]))
@@ -406,7 +417,8 @@ def burstselect_cb(sender, data):
 	log_cb(sender, 'Opening file {}'.format(gdata['files'][fileidx]))
 
 def exportmask_cb(sender, data):
-	np.save('masks_{}.npy'.format('test'), [gdata['masks']])
+	datestr = datetime.now().strftime('%b%d')
+	np.save('masks_{}.npy'.format(datestr), [gdata['masks']])
 	print(gdata['masks'])
 
 def importmask_cb(sender, data):
@@ -539,14 +551,14 @@ def getCurrentBurst():
 	""" Return the currently loaded waterfall at its burst DM """
 	burstname = dpg.get_value('burstname').replace(',', '')
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
-	lowest_freq = gdata['burstmeta']['dfs'][0] # mhz
+	lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
 	wfall = gdata['wfall'].copy()
 	wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 	burstDM = gdata['burstDM']
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
 def getMeasurementInfo(wfall_cr):
-	# TODO: region info
+	# TODO: region info, raw shape
 	tsamp_width = dpg.get_value('twidth')
 	fchans, tchans = wfall_cr.shape
 	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
@@ -845,7 +857,8 @@ def enablesplitting_cb(sender, data):
 def exportregions_cb(sender, data):
 	regions = getAllRegions()
 	saveobj = {gdata['displayedBurst']: regions}
-	filename = 'burstregions_{}.npy'.format('aggarwal')
+	datestr = datetime.now().strftime('%b%d')
+	filename = 'burstregions_{}.npy'.format(datestr)
 	if os.path.exists(filename):
 		loadobj = np.load(filename, allow_pickle=True)[0]
 		loadobj[gdata['displayedBurst']] = regions
@@ -915,7 +928,7 @@ def regionSelector():
 			width=280,
 			enabled=enabled,
 			max_value=maxval,
-			speed=0.5,
+			speed=maxval*0.005,
 			default_value=[0, maxval],
 			callback=drawregion_cb
 		)
@@ -1028,7 +1041,7 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_input_int('twidth', label='Display width (# chans)',
 				default_value=twidth_default,
 				step=10,
-				callback=plotdata_cb
+				callback=twidth_cb
 			)
 			dpg.add_input_float('twidth_ms', label='Display width (ms)', enabled=False)
 
@@ -1241,10 +1254,11 @@ def frbgui(filefilter=gdata['globfilter'],
 
 if __name__ == '__main__':
 	frbgui(
-		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
+		datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		maskfile='aggarwalmasks_sept12.npy',
-		regionfile='burstregions_aggarwal.npy',
-		dmstep=5,
-		dmrange=[560, 570]
+		# maskfile='aggarwalmasks_sept12.npy',
+		regionfile='burstregions_gajjarsept30.npy',
+		dmstep=1,
+		dmrange=[555, 575]
 	)
