@@ -145,6 +145,7 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
 	return extents, corrextents
 
 def cropwfall(wfall, twidth=150, pkidx=None):
+	twidth = round(twidth)
 	wfall = wfall.copy()
 	ts    = np.nanmean(wfall, axis=0)
 	if not pkidx:
@@ -155,7 +156,6 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 		ledge = 0
 	if redge == 0: # slicing w/ None takes the whole array
 		redge = None
-	# print('cropwfall:', wfall.shape, ledge, redge)
 
 	return wfall[..., ledge:redge]
 
@@ -442,17 +442,10 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 
 		wfall = data['wfall']
 		storedshape = wfall.shape
-		wfall = cropwfall(wfall, twidth=round(row['tchans']/2)) # 'tchans' is the original unsplit tchans
+
 		df, dt_ms = row['f_res (mhz)'], row['time_res (s)']*1000
-		bandwidth = data['dfs'][-1] - data['dfs'][0]
-		lowest_freq = data['dfs'][0]
-		extents, corrextents = getExtents(wfall, df=df, dt=dt_ms, lowest_freq=lowest_freq)
-		if 'subbg_start (ms)' in row and not np.isnan(row['subbg_start (ms)']):
-			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
-			timerange = [round(extents[0]), round(extents[1])]
-			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
-			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
-			wfall = subtractbg(wfall, tleft, tright)
+		bandwidth = data['bandwidth']
+		lowest_freq = min(data['dfs']) # off by half a channel probably
 
 		# apply masks
 		if masks is not None and masks != []:
@@ -463,8 +456,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 				if m < len(wfall):
 					wfall[m] = 0
 
-		# Check if the waterfall was subsampled before measuring.
-		# We want to reproduce that in the figure, so subsample the wfall before displaying it if needed
+		# Check if the waterfall was subsampled before measuring and subsample if so
 		if abs(bandwidth)/storedshape[0] != df:
 			factor = df / (abs(bandwidth)/storedshape[0])
 			if round(factor) == factor:
@@ -475,6 +467,15 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 			if round(factor) == factor:
 				wfall = subsample(wfall, wfall.shape[0], int(wfall.shape[1]/factor))
 
+		wfall = cropwfall(wfall, twidth=row['tsamp_width']) # crop after subsampling.
+		if 'subbg_start (ms)' in row and not np.isnan(row['subbg_start (ms)']):
+			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
+			timerange = [0, round(dt_ms*wfall.shape[1])]
+			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
+			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
+			wfall = subtractbg(wfall, tleft, tright)
+
+		extents, corrextents = getExtents(wfall, df=df, dt=dt_ms, lowest_freq=lowest_freq)
 		if regions:
 			wfall = getSubbursts(wfall, df, dt_ms, lowest_freq, regions)[suffix]
 			extents, corrextents = getExtents(wfall, df=df, dt=dt_ms, lowest_freq=lowest_freq)

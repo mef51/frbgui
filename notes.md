@@ -342,3 +342,10 @@ meeting notes:
 	* remove raw_shape attribute in npz file (ie. the stored shape), just infer it from the stored waterfall
 * there's a problem with region saving
 	> load a burst, set regions, change burst, go back, export regions, saved key will be wrong
+* with gajjar set fits in pdf dont line up with fit found in gui
+
+## oct 2
+* regions dont get loaded at gui start if first burst in list has regions
+* regions dont make sense without the twidth they were made with
+* rounding from time to channel number is needed to display the waterfall, but using this extent to update the time resolution was leaving a tiny error in the resolution that was causing a PDF display bug. Using the full shape and duration to update resolution always now
+	> just as a general rule respect the value of duration and time in the fits file. I was inferring them from dfs but since that can be a list of the center frequencies of the channel you could have slight errors in the bandwidth/duration that affects the downsampling

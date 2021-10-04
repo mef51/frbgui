@@ -73,14 +73,16 @@ def updatedata_cb(sender, data):
 				if key != 'wfall':
 					gdata['burstmeta'][key] = loaded[key]
 					if key == 'dfs':
-						dfs = loaded[key]
-						df = abs((max(dfs) - min(dfs))/ wfall.shape[0])
+						# dfs = loaded[key]
+						gdata['burstmeta']['bandwidth'] = abs(loaded['bandwidth'])
+						df = gdata['burstmeta']['bandwidth'] / wfall.shape[0]
 						gdata['burstmeta']['fres_original'] = df
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
 						dt = loaded['duration'] / storedshape[1]*1000
+						gdata['burstmeta']['duration'] = loaded['duration']
 						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
@@ -211,14 +213,14 @@ def updatedata_cb(sender, data):
 	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 
-		bandwidth = gdata['extents'][3] - gdata['extents'][2]
-		duration = gdata['extents'][1] - gdata['extents'][0]
-		twidth = duration/gdata['burstmeta']['tres_original']/2
+		disp_bandwidth = gdata['extents'][3] - gdata['extents'][2] # == gdata['burstmeta']['bandwidth']
+		disp_duration = gdata['extents'][1] - gdata['extents'][0]
+		twidth = disp_duration/gdata['burstmeta']['tres_original']/2
 		dpg.set_value('twidth', round(twidth * (wfall.shape[1]/gdata['wfall_original'].shape[1])))
 
 		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
-		gdata['burstmeta']['fres'] = bandwidth / wfall_cr.shape[0]
-		gdata['burstmeta']['tres'] = duration / wfall_cr.shape[1]
+		gdata['burstmeta']['fres'] = gdata['burstmeta']['bandwidth'] / wfall.shape[0]
+		gdata['burstmeta']['tres'] = gdata['burstmeta']['duration']*1000 / wfall.shape[1]
 
 		dpg.set_value('Subfallshapelbl', 'Current Size: {}'.format(np.shape(wfall)))
 	else:
@@ -305,7 +307,7 @@ def plotdata_cb(_, data):
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
 	dpg.set_value('twidth_ms', 2*dpg.get_value('twidth')*dt)
-	print(extents, df, dt, lowest_freq)
+	# print(extents, df, dt, lowest_freq)
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
@@ -703,8 +705,11 @@ def exportresults_cb(sender, data):
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
 	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
-	df.to_csv(filename)
-	dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
+	try:
+		df.to_csv(filename)
+		dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
+	except PermissionError as e:
+		dpg.set_value('ExportCSVText', 'Permission Denied')
 	dpg.configure_item('ExportCSVText', show=True)
 
 	if sender == 'ExportPDFBtn':
@@ -1258,7 +1263,7 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		# maskfile='aggarwalmasks_sept12.npy',
-		regionfile='burstregions_gajjarsept30.npy',
-		dmstep=1,
+		regionfile='burstregions_gajjaroct1.npy',
+		dmstep=5,
 		dmrange=[555, 575]
 	)
