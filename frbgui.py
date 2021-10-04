@@ -499,7 +499,7 @@ def updateResultTable(resultsdf):
 
 	# subset of driftrate.columns:
 	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'theta', 'center_f']
-	columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
+	# columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
 	dpg.set_headers('Resulttable', columns)
 
 	# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
@@ -562,14 +562,16 @@ def getCurrentBurst():
 def getMeasurementInfo(wfall_cr):
 	# TODO: region info, raw shape
 	tsamp_width = dpg.get_value('twidth')
+	downf = gdata['wfall_original'].shape[0] / wfall.shape[0]
+	downt = gdata['wfall_original'].shape[1] / wfall.shape[1]
 	fchans, tchans = wfall_cr.shape
 	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
 	if dpg.get_value('EnableSubBGBox'):
 		subbgstart, subbgend = dpg.get_value('SubtractBGRegion')
 	if dpg.get_value('EnableSKSGMaskBox'):
 		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
-	cols = ['fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
-	row = [fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
+	cols = ['downf', 'downt', 'fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
+	row = [downf, downt, fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
 	return cols, row
 
 def slope_cb(sender, data):
@@ -1264,6 +1266,6 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		# maskfile='aggarwalmasks_sept12.npy',
 		regionfile='burstregions_gajjaroct1.npy',
-		dmstep=5,
+		dmstep=1,
 		dmrange=[555, 575]
 	)

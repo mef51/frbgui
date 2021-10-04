@@ -457,15 +457,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 					wfall[m] = 0
 
 		# Check if the waterfall was subsampled before measuring and subsample if so
-		if abs(bandwidth)/storedshape[0] != df:
-			factor = df / (abs(bandwidth)/storedshape[0])
-			if round(factor) == factor:
-				wfall = subsample(wfall, int(wfall.shape[0]/factor), wfall.shape[1])
-		duration_ms = data['duration']*1000
-		if duration_ms/storedshape[1] != dt_ms:
-			factor = dt_ms / (duration_ms/storedshape[1])
-			if round(factor) == factor:
-				wfall = subsample(wfall, wfall.shape[0], int(wfall.shape[1]/factor))
+		wfall = subsample(wfall, int(wfall.shape[0]/row['downf']), int(wfall.shape[1]/row['downt']))
 
 		wfall = cropwfall(wfall, twidth=row['tsamp_width']) # crop after subsampling.
 		if 'subbg_start (ms)' in row and not np.isnan(row['subbg_start (ms)']):
