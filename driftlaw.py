@@ -7,7 +7,7 @@ import itertools
 def computeModelDetails(frame):
 	""" Takes a dataframe and computes columns related to the dynamical frb model """
 	frame = frame.copy()
-	tauwerror_expr = lambda r: 1e3*r['time_res (s)']*np.sqrt(r['max_sigma']**6*r['min_sigma_error']**2*np.cos(r['angle']-np.pi/2)**4 + r['angle_error']**2*r['max_sigma']**2*r['min_sigma']**2*(-r['max_sigma']**2 + r['min_sigma']**2)**2*np.cos(r['angle']-np.pi/2)**2*np.sin(r['angle']-np.pi/2)**2 + r['max_sigma_error']**2*r['min_sigma']**6*np.sin(r['angle']-np.pi/2)**4)/(r['max_sigma']**2*np.cos(r['angle']-np.pi/2)**2 + r['min_sigma']**2*np.sin(r['angle']-np.pi/2)**2)**1.5
+	tauwerror_expr = lambda r: 1e3*r['time_res (s)']*np.sqrt(r['max_sigma']**6*r['min_sigma_error']**2*np.cos(r['theta']-np.pi/2)**4 + r['angle_error']**2*r['max_sigma']**2*r['min_sigma']**2*(-r['max_sigma']**2 + r['min_sigma']**2)**2*np.cos(r['theta']-np.pi/2)**2*np.sin(r['theta']-np.pi/2)**2 + r['max_sigma_error']**2*r['min_sigma']**6*np.sin(r['theta']-np.pi/2)**4)/(r['max_sigma']**2*np.cos(r['theta']-np.pi/2)**2 + r['min_sigma']**2*np.sin(r['theta']-np.pi/2)**2)**1.5
 
 	frame['slope_abs'] = -1*(frame['slope (mhz/ms)'])
 	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
@@ -21,13 +21,13 @@ def computeModelDetails(frame):
 
 	frame['sigma_t']   = frame[['min_sigma','time_res (s)']].apply(lambda row: row['min_sigma']*row['time_res (s)'], axis=1)
 
-	frame['tau_w'] = frame[['time_res (s)', 'min_sigma', 'max_sigma', 'angle']].apply(
-		lambda r: r['time_res (s)']*r['min_sigma']*r['max_sigma'] / np.sqrt( np.abs((np.sin(r['angle']-np.pi/2)*r['min_sigma'])**2 + (np.cos(r['angle']-np.pi/2)*r['max_sigma'])**2 )),
+	frame['tau_w'] = frame[['time_res (s)', 'min_sigma', 'max_sigma', 'theta']].apply(
+		lambda r: r['time_res (s)']*r['min_sigma']*r['max_sigma'] / np.sqrt( np.abs((np.sin(r['theta']-np.pi/2)*r['min_sigma'])**2 + (np.cos(r['theta']-np.pi/2)*r['max_sigma'])**2 )),
 		axis=1
 	)
 
 	# this error is in ms
-	frame['tau_w_error'] = frame[['tau_w', 'time_res (s)', 'min_sigma', 'max_sigma', 'min_sigma_error', 'max_sigma_error', 'angle', 'angle_error']].apply(
+	frame['tau_w_error'] = frame[['tau_w', 'time_res (s)', 'min_sigma', 'max_sigma', 'min_sigma_error', 'max_sigma_error', 'theta', 'angle_error']].apply(
 		tauwerror_expr,
 		axis=1
 	)

@@ -349,3 +349,83 @@ meeting notes:
 * regions dont make sense without the twidth they were made with
 * rounding from time to channel number is needed to display the waterfall, but using this extent to update the time resolution was leaving a tiny error in the resolution that was causing a PDF display bug. Using the full shape and duration to update resolution always now
 	> just as a general rule respect the value of duration and time in the fits file. I was inferring them from dfs but since that can be a list of the center frequencies of the channel you could have slight errors in the bandwidth/duration that affects the downsampling
+
+## oct 4
+* I measured 11A at two different wfall resolutions: 256x512 and 512x1024. Most of the slope measurements agreed, but the measurements of slopes that were close to vertical differed by an order of magnitude. Looking at the figures, you can see that dedispersion for the lower res waterfall was steeper than for the higher res waterfall, because the channels are more coarse.
+	* Measuring at a time resolution that is too low will lead to a larger slope measurement, and make the range of slope measurements larger over the DM range. Dedispersion becomes more inaccurate when the time resolution is low (fewer channels) which means larger measurements as well as larger errors at the vertical end of the slope range.
+	* Use as high a time resolution as possible for higher quality measurements
+* need to fix:
+	* loading a csv of multiburst results displays only the full burst results and not the subburst results >> fixed
+	* pdf of multiburst at high res (maybe low res too?) doesn't split burst properly
+		* see 11A_b @ DM=556. low res is fine, higher res doesnt split properly
+	* clicking between subburst results in table after measurement leads to:
+		```
+		Traceback (most recent call last):
+			File "B:\dev\frbrepeaters\frbgui.py", line 494, in resulttable_cb
+			    displayresult_cb('User', {'resultidx': newsel[0]})
+			  File "B:\dev\frbrepeaters\frbgui.py", line 762, in displayresult_cb
+			    plotdata_cb(sender, data)
+			  File "B:\dev\frbrepeaters\frbgui.py", line 299, in plotdata_cb
+			    subburst = subbursts[subname]
+			TypeError: list indices must be integers or slices, not str
+		```
+
+## oct 5
+* slope and duration measurements are resolution dependent. So how should you compare burst measurements across different resolutions?
+	* Should burst measurements across sources be compared at the same resolution?
+* gajjar resolution in first paper (ascii data from authors) was at 1.46484375 MHz/chan and 4.0958926622802e-5 s/chan. That corresponds to a shape of 2048x512. The data they provide online was 19456x2048 so I can prepare wfalls of shape 2432x2048 and use that to reproduce the old measurements at the same resolution
+
+## oct 6
+* try ftol and xtol in `curve_fit` to speed up fit finding https://stackoverflow.com/questions/31070618/how-to-speed-up-python-curve-fit-over-a-2d-array
+* differences:
+	* different shapes
+	* wrong res used in old 11A measurements? measurement seems right by manual calculation
+	* dedisperse before subsample (old) vs subsample before dedisperse (new)
+* redo with shape  to get resolution 7.32421875mhz/chan and 4.09e-5 s/chan (5x base freq resolution)
+* write an automated test that given a results csv will, for each row, repeat the measurement and compare the results with those in the csv.
+	* If they differ, raise an error.
+
+## oct 7
+* everything looks the same in the plot, but the solutions are different. try plotting each solution on the other, are they equivalent?
+	* they are not
+	* oh snap if you divide the gui's sigmax, sigmay and angle by 4 you retrieve paper 1's solution. extents bug? time res is off by 4?
+* why are the gaussian amplitudes so different?
+
+## oct 8
+* tres goes through fine. Turned out I copied 11A instead of 11A_a and it turned out the solution for 11A/4 is identical to 11A_a. Why does that work?
+* minor difference seen between the results when plotting with gui's 11A_a and paper 1's 11A_a
+
+## oct 10
+* to maximize precision the order of steps for treating a waterfall before measuring should be:
+	1. Apply masks --> Do at high res to preserve as much signal as possible
+	2. Dedisperse --> do this at high res because the channels can be rolled more finely. Low res dedispersions can result in huge slope ranges
+	3. Downsample --> This step is necessary to increase the SNR enough for a measurement (ie. a fit) to be performed.
+	4. Center/crop/pad burst --> for speed and display and measurement checking
+	5. Measure
+* If there are regions, then they should be time stamped (not channel numbers) and ideally interpolated into channel numbers and split before downsampling
+* In the jupyter notebook if I subsample before dedispersing in an attempt to mimic the gui, the results still dont match. There's another difference.
+	* In fact subsampling (in just frequency at least) before dedispersing only has a small effect on the measurement haha.
+* Width differences?
+	> nope
+* maybe its a regions thing? Compare 11D between the two since its a single burst.
+
+## oct 11
+* 11D is also different. reproduce that since its a simpler case and then do 11A. dont gotta deal with the regions stuff that way
+* 11D: gui solution and notebook solution both look good on either correlation. So why the difference in slope?
+* notebook with gui wfall finds same slope as notebook wfall but different duration measurement
+* notebook with notebook wfall with NO p0 finds same slope and duration as notebook with gui wfall with NO p0
+* fuck it ill just make a table
+
+11D @ DM = 555
+_________________________________ | slope        | t_w_ms
+notebook + gui wfall      + no p0 | -1162.344651 | 1.590012
+notebook + notebook wfall + no p0 | -1162.344651 | 1.590012
+notebook + gui wfall      + p0    | -1162.347946 | 0.354748
+notebook + notebook wfall + p0    | -1162.347946 | 0.354748
+
+* the angle is not "cleaned" before calculating t_w_ms. I want to recheck that calculation
+* Specifically these two lines:
+	```
+	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2
+	popt[5] = theta
+	```
