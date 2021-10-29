@@ -59,6 +59,8 @@ def updatedata_cb(sender, data):
 	if 'fileidx' in data.keys(): # load burst from disk
 		filename = gdata['files'][data['fileidx']]
 		gdata['currfile'] = filename
+		if gdata['currfile'] not in gdata['masks'].keys():
+			gdata['masks'][gdata['currfile']] = [] # initialize list
 		burstname = makeburstname(filename)
 		dpg.set_value('burstname', burstname)
 		loaded = np.load(filename)
@@ -132,10 +134,7 @@ def updatedata_cb(sender, data):
 			dpg.configure_item('DeleteAllBtn', enabled=False) # unimplemented
 			dpg.configure_item('EnableP0Box', enabled=hasResults)
 			if hasResults:
-				if gdata['multiburst']['enabled']:
-					gdata['burstdf'] = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
-				else:
-					gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+				gdata['burstdf'] = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 
 				# reload waterfall cleanup
 				cols = ['tsamp_width', 'subbg_start (ms)', 'subbg_end (ms)', 'sksigma', 'skwindow']
@@ -161,6 +160,7 @@ def updatedata_cb(sender, data):
 						toggle_config('EnableSKSGMaskBox', {'kwargs': ['enabled'], 'items': skitems})
 
 				# check if subsampling is needed (for eg. if results have been loaded)
+				## TODO: just use downf and downt from the table
 				fres, tres = gdata['burstdf'][['f_res (mhz)', 'time_res (s)']].iloc[0]
 				tres = tres*1000
 				if fres != gdata['burstmeta']['fres']:
@@ -173,6 +173,7 @@ def updatedata_cb(sender, data):
 					if round(subfac) == subfac:
 						dpg.set_value('numtimeinput', int(wfall.shape[1]/subfac))
 						wfall = subsample_cb('loadresults_cb', None)
+						dpg.set_value('twidth', int(twidth)) # force twidth to match results row after subsampling
 
 				updateResultTable(gdata['burstdf'])
 				initializeP0Group()
@@ -226,9 +227,6 @@ def updatedata_cb(sender, data):
 	else:
 		wfall = gdata['wfall']
 
-	if gdata['currfile'] not in gdata['masks'].keys():
-		gdata['masks'][gdata['currfile']] = [] # initialize list
-
 	if wfall.shape == gdata['wfall_original'].shape:
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 		if dpg.get_value('EnableSubBGBox'):
@@ -252,7 +250,8 @@ def getcorr2dtexture(corr, popt=None, p0=None):
 	plt.clim(0, np.max(corr)/20)
 	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeFitmap(popt, corr)
-		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
+		if 1 not in fitmap.shape: # subsample ui can result in fitmaps unsuitable for countour plotting
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
 
 	if p0 is not None and p0[0] > 0:
 		fitmap = driftrate.makeFitmap(p0, corr)
@@ -560,10 +559,9 @@ def getCurrentBurst():
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
 def getMeasurementInfo(wfall_cr):
-	# TODO: region info, raw shape
 	tsamp_width = dpg.get_value('twidth')
-	downf = gdata['wfall_original'].shape[0] / wfall.shape[0]
-	downt = gdata['wfall_original'].shape[1] / wfall.shape[1]
+	downf = gdata['wfall_original'].shape[0] / gdata['wfall'].shape[0]
+	downt = gdata['wfall_original'].shape[1] / gdata['wfall'].shape[1]
 	fchans, tchans = wfall_cr.shape
 	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
 	if dpg.get_value('EnableSubBGBox'):
@@ -572,6 +570,19 @@ def getMeasurementInfo(wfall_cr):
 		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
 	cols = ['downf', 'downt', 'fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
 	row = [downf, downt, fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
+
+	# TODO: region info, raw shape
+	regions = getAllRegions() # is empty when regions is disabled
+	for regname, region in regions.items():
+		if regname == 'background':
+			cols.append('background')
+			row.append(region[1])
+		else:
+			cols.append(f'regstart_{regname}')
+			row.append(region[0])
+			cols.append(f'regend_{regname}')
+			row.append(region[1])
+
 	return cols, row
 
 def slope_cb(sender, data):
@@ -652,11 +663,12 @@ def redodm_cb(sender, data):
 		subbursts = getSubbursts()
 		wfall_cr = subbursts[displayedname]
 
-	print('redoing ', displayedname, gdata['displayedDM'])
+	print('redoing ', displayedname, gdata['displayedDM'], f'with {df = } {dt =} {lowest_freq = }')
 	result, burstdf = driftrate.processDMRange(
 		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
 		df, dt, lowest_freq, p0=p0
 	)
+	print(f'{result = }')
 	cols, row = getMeasurementInfo(wfall_cr)
 	burstdf[cols] = row
 	df = gdata['resultsdf']
@@ -664,12 +676,12 @@ def redodm_cb(sender, data):
 
 	gdata['resultsdf'] = df
 	gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
+	dispdm = gdata['displayedDM']
 
 	if gdata['multiburst']['enabled']:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		updateResultTable(subburstdf)
 		subburstdf = subburstdf.reset_index()
-		dispdm = gdata['displayedDM']
 		resultidx = subburstdf[(subburstdf.name == displayedname) & (subburstdf.DM == dispdm)].index[0]
 		if data is None:
 			data = {}
@@ -678,6 +690,16 @@ def redodm_cb(sender, data):
 		updateResultTable(gdata['burstdf'])
 	backupresults()
 	plotdata_cb(sender, data)
+
+	# if useForAll programatically click "next DM" then repeat this block
+	# that will preserve the behaviour where regions only need to be read at the start
+	if useForAll:
+		tabledf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
+		redoidx = tabledf[(tabledf.name == gdata['displayedBurst']) & (np.isclose(tabledf.DM, dispdm))].index[0]
+		maxidx = len(tabledf)
+		if redoidx+1 < maxidx:
+			displayresult_cb('NextDM', None)
+			redodm_cb(sender, None)
 
 def getAllRegions():
 	ret = {}
@@ -717,7 +739,7 @@ def exportresults_cb(sender, data):
 	if sender == 'ExportPDFBtn':
 		dpg.configure_item('ExportPDFText', show=True)
 		dpg.set_value('ExportPDFText', 'Saving PDF...')
-		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'], regionsfile=gdata['multiburst']['regions'])
+		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
 		if success:
 			dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
 		else:
@@ -981,7 +1003,7 @@ def getSubbursts():
 	# for subburst in subbursts:
 	subburstsobj = {}
 	for subburst, suffix in zip(subbursts, subburst_suffixes):
-		subburst = np.concatenate((background, subburst, background), axis=1)
+		subburst = np.concatenate((0*background, subburst, 0*background), axis=1)
 		subname = burstname +'_'+ suffix # '_' is used in plotResults to split names
 		subburstsobj[subname] = subburst
 	return subburstsobj
@@ -1247,6 +1269,7 @@ def frbgui(filefilter=gdata['globfilter'],
 	burstselect_cb('burstselect', None)
 	importmask_cb('user', maskfile)
 	importregions_cb('user', regionfile)
+	burstselect_cb('burstselect', None) # silly trick to load regions on start
 
 	## dm range defaults
 	dpg.set_value('dmrange', dmrange)

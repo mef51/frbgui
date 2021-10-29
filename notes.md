@@ -429,3 +429,55 @@ notebook + notebook wfall + p0    | -1162.347946 | 0.354748
 	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2
 	popt[5] = theta
 	```
+
+* replacing angle in popt with theta reproduces the duration measurements for 11D. This makes sense as `driftlaw.computeModelDetails` assumes that 'angle' is the correctly defined theta
+* that line (popt[5] = theta) was in the michilli script but not the chime script, so those bursts probably have bad time ranges lmao i need to re-run them
+	* actually looks like the scripts for both 180916 and 180814 stores the correct angle and not the raw angle, which means their durations should be fine
+	* so the gajjar script was the only one with that bug and luckily it just worked out to always use the correct angle.
+	* When I wrote the gui and the libs i didn't copy from michilli so the key line was missing, and I handled the storage differently than from the chime scripts, which left the bug exposed
+	* btw for the record the sigma_t_ms and t_w_ms columns should basically be the same. they are calculated differently but sigma_t turns out to be a pretty good estimate of t_w_ms
+* notebook produces the same slope and duration for the ascii waterfall and the gui waterfall (ie fits)
+* maybe dump the ascii waterfall and measure it in the gui?
+
+## oct 12
+* 11D: notebook reproduces gui slope and duration result when given the fits data. This points to the differences in the ascii and fits data as the source of the discrepancy. This could also be due to victor's treatment of the ascii data
+* there is a definite rotation between the two versions of the data. One of them is maybe at the wrong reported DM?
+
+## oct 13
+* The gajjar data in ascii form that we obtained through email is in fact not at 565 pc/cm^3. It is at 557.91 pc/cm^3, matching the DM the fits data is at.
+* This makes the measurements for 11D agree. There are still differences with 11A
+
+## oct 14
+* width of region affects slope and center_f measurement for 11A_a in notebook
+* region also affects slope measurement in gui!
+* this can be easily reproduced by the choice of background
+
+## oct 15
+* zero padding instead of background sampling padding removes width dependence
+* burst region width only seems to matter if region is not generously wide. For 11Aa there isn't much room, which seems to be the reason for the measurement instability
+* 11A Regions:
+regionname = 'Region1' regiontype = 1 region = [53, 70]
+regionname = 'Region2' regiontype = 1 region = [70, 83]
+regionname = 'Region3' regiontype = 1 region = [83, 101]
+regionname = 'Region4' regiontype = 1 region = [101, 144]
+regionname = 'Region5' regiontype = 0 region = [0, 41]
+
+* measurements are much closer together now when regions are duplicated. Differences are due to differences in signal in the window, so this means we should be careful when making regions, and make them as wide as possible.
+* to summarize: take waterfalls as wide as possible, if you need more room, pad with zeroes. There are things in the "noise" that affect the measurement.
+
+## oct 18
+* no more regions file! for FRBs that are split for measurement write the region info into the right row in the csv
+
+## oct 19
+* 11G almost looks like a happy trombone. Hard to tell, the second burst is extremely low snr.. not even sure its there
+	* needs noise removal
+* when data at the edge the fit is misaligned (11O)
+
+## oct 23
+* FRB121102
+	* 161 day periodicity (cruces 2020)
+	* localized to milliarcsecond precision in 2018, in a dwarf galaxy at redshift 0.193 (see first para of cruces 2020)
+	* z = 0.193
+
+## oct 25
+* dont put float logic in if statements use np.isclose

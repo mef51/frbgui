@@ -53,7 +53,9 @@ def moments(data):
 	row = data[int(x), :]
 	width_y = np.sqrt(abs((np.arange(row.size)-x)**2*row).sum()/row.sum())
 	height = data.max()
-	return height, x, y, width_x, width_y, 2.0
+	print('using default p0:', height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0)
+	return height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0
+	# return height, x, y, width_x, width_y, 2.0
 
 def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
 	y, x = point
@@ -204,6 +206,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	"""
 
 	corr = autocorr2d(burstwindow)
+	print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
+	print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
 
 	if nclip != None or clip != None:
 		corr = np.clip(corr, nclip, clip)
@@ -238,12 +242,12 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	red_chisq = chisq / (corr.shape[0]*corr.shape[1] - len(popt)) # this is chisq/(M-N)
 
 	# Calculate slope
-	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2
-	slope = np.tan(theta)
+	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2 # defined via eqs. A2 and A3
 	conversion = fres_MHz / (tres_ms)
-	drift = conversion * slope # MHz/ms
+	slope = conversion * np.tan(theta) # MHz/ms
+	print(f'slope calc: {fres_MHz = } {tres_ms = } {theta = } {np.tan(theta) = }')
 	theta_err = perr[-1]
-	drift_error = conversion * (theta_err * (1/np.cos(theta))**2)
+	slope_error = conversion * (theta_err * (1/np.cos(theta))**2)
 
 	# find center frequency
 	center_f = findCenter(burstwindow)*fres_MHz + lowest_freq
@@ -253,8 +257,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		_plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, fres_MHz, tres_ms, lowest_freq)
 
 	return (
-		drift,
-		drift_error,
+		slope,
+		slope_error,
 		popt,
 		perr,
 		theta,
@@ -400,12 +404,13 @@ def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 	# pad with background
 	# for subburst in subbursts:
 	subburstsobj = {}
-	for subburst, suffix in zip(subbursts, subburst_suffixes):
-		subburst = np.concatenate((background, subburst, background), axis=1)
+	suffixes = list(regions.keys())[:-1]
+	for subburst, suffix in zip(subbursts, suffixes):
+		subburst = np.concatenate((0*background, subburst, 0*background), axis=1)
 		subburstsobj[suffix] = subburst
 	return subburstsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize=(14, 16), nrows=6, ncols=4):
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -424,16 +429,16 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 	if type(masks) == str: # filename
 		if os.path.exists(masks):
 			masks = np.load(masks, allow_pickle=True)[0]
-	if type(regionsfile) == str:
-		if os.path.exists(regionsfile):
-			regionsfile = np.load(regionsfile, allow_pickle=True)[0]
 
 	for name, row in resultsdf.iterrows():
 		print('plotting', name)
 		if '_' in name:
 			subname = name
 			name, suffix = name.split('_')
-			regions = regionsfile[name]
+			regcols = [col for col in row.index if 'reg' in col]
+			regcols.append('background') if 'background' in row.index else None
+			regions = {suffix: [row[f'regstart_{suffix}'], row[f'regend_{suffix}']]}
+			regions['background'] = [0, row['background']]
 		else:
 			regions = None
 
@@ -485,6 +490,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, regionsfile=None, figsize
 		bname = name if not regions else subname
 		plt.subplot(nrows, ncols, currentplot)
 		plt.imshow(wfall, origin='lower', interpolation='none', aspect='auto', extent=extents)
+		plt.axhline(y=row['center_f'], c='k', ls='--', lw=1)
 		plt.title(f'{bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('Time (ms)'), plt.ylabel('Freq (MHz)')
 
