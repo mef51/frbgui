@@ -493,11 +493,13 @@ def resulttable_cb(sender, data):
 	displayresult_cb('User', {'resultidx': newsel[0]})
 
 def updateResultTable(resultsdf):
+	if 'slope (mhz/ms)' in resultsdf.columns:
+		resultsdf = driftlaw.computeModelDetails(resultsdf)
 	dpg.delete_item('Resulttable')
 	dpg.add_table('Resulttable', [], height=225, parent='ResultsGroup', callback=resulttable_cb)
 
 	# subset of driftrate.columns:
-	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'theta', 'center_f']
+	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'tau_w_ms', 'theta', 'center_f']
 	# columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
 	dpg.set_headers('Resulttable', columns)
 
@@ -755,8 +757,7 @@ def backupresults():
 
 def displayresult_cb(sender, data):
 	burstDM = gdata['burstDM']
-	trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
-	dmlist = list(trialDMs)
+	dmlist = list(gdata['burstdf'].loc[gdata['burstdf'].index[0]]['DM'])
 
 	burstname = dpg.get_value('burstname').replace(',', '')
 	subname = gdata['displayedBurst']
@@ -1192,7 +1193,7 @@ def frbgui(filefilter=gdata['globfilter'],
 					dpg.add_drag_float("AngleDrag", label="Angle", enabled=False,
 						min_value=0, max_value=0, callback=updatep0_cb)
 					dpg.add_drag_float2("x0y0Drag", label="x0, y0", enabled=False,
-						min_value=0, max_value=0, callback=updatep0_cb)
+						min_value=0, max_value=0, speed=1, callback=updatep0_cb)
 					dpg.add_drag_float2("SigmaXYDrag", label="sigmax, sigmay", enabled=False,
 						min_value=0, max_value=0, callback=updatep0_cb)
 					dpg.add_button("RedoBtn", label="Redo this DM", callback=redodm_cb, enabled=False)
@@ -1284,11 +1285,11 @@ def frbgui(filefilter=gdata['globfilter'],
 
 if __name__ == '__main__':
 	frbgui(
-		datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
-		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
+		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		# maskfile='aggarwalmasks_sept12.npy',
-		regionfile='burstregions_gajjaroct1.npy',
+		maskfile='aggarwalmasks_sept12.npy',
+		# regionfile='burstregions_gajjaroct1.npy',
 		dmstep=1,
-		dmrange=[555, 575]
+		dmrange=[560, 570]
 	)

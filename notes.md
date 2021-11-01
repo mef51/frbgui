@@ -481,3 +481,16 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 
 ## oct 25
 * dont put float logic in if statements use np.isclose
+
+## oct 29
+* redoing some aggarwal bursts to check effect of gui changes on measurement:
+	* B016: has two bursts but both are hard to measure
+	* B023: looks good but for the life of me I cant get a fit. Noise at the top of the burst
+	* B037 shows time resolution affects the measurement. Presumably the higher the resolution the better. Will need to look at this effect in more detail.
+	* slope measurements seem to agree if the resolutions are the same
+	* B06 slope measurements agree well.
+	* Duration measurements are different, for B006 its because of the theta fix. So I reran the model details for those results but it doesn't really matter since in the plot I do `computeModelDetails` every time, so as soon as I fixed it there it fixed it on the fly for the plot
+* B025 at 561.5pc/cm3 Has a weird fit. Looks fine in GUI, looks clearly wrong in PDF, and doesn't fit the rest of the fits
+
+## oct 31
+* fix B025 fit, and gui was displaying the wrong fit because it was using the wrong dm list
