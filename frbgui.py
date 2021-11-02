@@ -160,20 +160,13 @@ def updatedata_cb(sender, data):
 						toggle_config('EnableSKSGMaskBox', {'kwargs': ['enabled'], 'items': skitems})
 
 				# check if subsampling is needed (for eg. if results have been loaded)
-				## TODO: just use downf and downt from the table
-				fres, tres = gdata['burstdf'][['f_res (mhz)', 'time_res (s)']].iloc[0]
-				tres = tres*1000
-				if fres != gdata['burstmeta']['fres']:
-					subfac = fres/gdata['burstmeta']['fres']
-					if round(subfac) == subfac:
-						dpg.set_value('numfreqinput', int(wfall.shape[0]/subfac))
-						wfall = subsample_cb('loadresults_cb', None)
-				if tres != gdata['burstmeta']['tres']:
-					subfac = tres/gdata['burstmeta']['tres']
-					if round(subfac) == subfac:
-						dpg.set_value('numtimeinput', int(wfall.shape[1]/subfac))
-						wfall = subsample_cb('loadresults_cb', None)
-						dpg.set_value('twidth', int(twidth)) # force twidth to match results row after subsampling
+				dmframe = gdata['burstdf'].set_index('DM')
+				downf, downt = map(int, dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][['downf', 'downt']])
+				dpg.set_value('numfreqinput', int(wfall.shape[0]/downf))
+				dpg.set_value('numtimeinput', int(wfall.shape[1]/downt))
+				if downf != 1 or downt != 1:
+					wfall = subsample_cb('loadresults_cb', None) # this updates gdata['burstmeta']
+				dpg.set_value('twidth', int(twidth)) # force twidth to match results row after subsampling
 
 				updateResultTable(gdata['burstdf'])
 				initializeP0Group()
