@@ -494,3 +494,60 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 
 ## oct 31
 * fix B025 fit, and gui was displaying the wrong fit because it was using the wrong dm list
+
+## nov 1
+* B028 is cutoff, maybe that's why its off trend?
+
+## nov 2
+* I did a test where I made a burst and then cutoff the top and measured the slope. The slope changed up to a quarter of its initial measurement (e.g. a slope measurement of -200 mhz/ms became -30 mhz/ms and a slope measurement of -8000 mhz/ms became -1000 mhz/ms). On that basis I think cutoff bursts should be excluded from the sample.
+
+## nov 3
+* B109 is a happy trombone with two bursts
+
+## nov 4
+* more negative slope is smaller in value? Noticed for B109, same deal in B006. Problem isn't in the Gajjar results
+
+## nov 5
+* angle seems to mean something different for the aggarwal dataset, but behaves normally for all the other datasets.
+
+## nov 7
+* forcing angle to be positive (the other datasets all have positive angles) doesn't fix the problem. Slope measurements are the same
+
+## nov 8
+* it might be more robust to fit a tan function to the slope measurements over the DM range.. but meh I dont know if that's worth the effort yet
+* ~aggarwal set needs tan(-theta) not tan(theta)~
+* investigate angle trend vs. aspect ratio. Based on the results I have i think its linear with equal aspect ratio but with a weird aspect ratio (like aggarwal's) its that weird kinked sigmoid thing
+* add slope check to results pdf
+* check the handedness of the angle between datasets (CCW or CW)
+
+## nov 11
+* handedness is CCW for both datasets. What is the aspect ratio between gajjar and aggarwal? gajjar is wider horizontally, aggarwal is wider vertically
+* check slope with pdf across gajjar and aggarwal --> both look fine
+* check full pdf
+
+## nov 12
+* different aspect ratios produce expected angle trend (ie some kind of tan(x))
+* squaring the aspect ratio restores the trend
+* in the aggarwal data the raw shape is 64x1220, but we clip to like 64x280
+* i get good measurements if i decrease the shape from 64x1220 to 64x305. Why?
+* angle offset controls slope trend but doesn't explain why when i went to 64x305 i get good measurements (ie. went very negative at vertical then very positive, through the tan asymptote)
+* good measurements at 64x610, limited extent and full extent
+* good measurements at 64x305, limited extent and full extent
+* bad measurements at 64x1220, limited extent and full extent
+* B011 has bad measurements and is downsampled by downf, downt = 2, 4, fchans, tchans = 32, 76, tsamp = 38
+	* has sigmax < sigmay and sigmax > 0  and sigmay > 0 for all measurements
+	* angle > 0
+* B128 has good measurements has downf, downt = 2, 4, fchans, tchans = 32, 74, tsamp = 38
+	* has sigmax > 0, sigma < 0 for all msrments and sigmax < abs(sigmay) for the first half, but then flips
+	* angle < 0
+
+## nov 15
+* B006: slopes follow -tan when measured at 64x610 but not when at 64x1220
+* B046: slopes follow -tan at 64x115
+* 11D at any downt (full res to low res) produces a -tan trend in the slopes
+* take new measurements of all bursts and reduce the time factor until you get the -tan trend. I suspect the very unequal aspect ratio (ie. way more time channels than frequency channels) is messing with the nonlinear lsq, but not sure.
+
+## nov 16
+* martin pointed out that the fits are always good, so there should be a corresponding correct slope calculation. Look at just one measurement and see what the correct slope is
+* numerical precision limits the verticality of the slope, which is obviously apparent at big differences in aspect ratio: https://www.desmos.com/calculator/9nkuvrfzkb
+	* the problem angles are at around pi/2, which if you look at the derivative of tan(x), blows up at pi/2

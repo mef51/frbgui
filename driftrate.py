@@ -53,7 +53,7 @@ def moments(data):
 	row = data[int(x), :]
 	width_y = np.sqrt(abs((np.arange(row.size)-x)**2*row).sum()/row.sum())
 	height = data.max()
-	print('using default p0:', height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0)
+	# print('using default p0:', height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0)
 	return height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0
 	# return height, x, y, width_x, width_y, 2.0
 
@@ -148,6 +148,8 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
 
 def cropwfall(wfall, twidth=150, pkidx=None):
 	twidth = round(twidth)
+	if twidth <= 0:
+		twidth = wfall.shape[1]
 	wfall = wfall.copy()
 	ts    = np.nanmean(wfall, axis=0)
 	if not pkidx:
@@ -206,8 +208,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	"""
 
 	corr = autocorr2d(burstwindow)
-	print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
-	print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
+	# print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
+	# print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
 
 	if nclip != None or clip != None:
 		corr = np.clip(corr, nclip, clip)
@@ -243,9 +245,10 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 
 	# Calculate slope
 	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2 # defined via eqs. A2 and A3
+	# theta = -popt[5] # aggarwal hack
 	conversion = fres_MHz / (tres_ms)
 	slope = conversion * np.tan(theta) # MHz/ms
-	print(f'slope calc: {fres_MHz = } {tres_ms = } {theta = } {np.tan(theta) = }')
+	# print(f'slope calc: {fres_MHz = } {tres_ms = } {theta = } {np.tan(theta) = }')
 	theta_err = perr[-1]
 	slope_error = conversion * (theta_err * (1/np.cos(theta))**2)
 
@@ -304,6 +307,7 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		ddm = trialDM - burstdm
 		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
 
+		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
@@ -420,6 +424,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	plt.figure(figsize=figsize)
 	ploti = itertools.count(start=1, step=1)
 	outputfile = f"{resultsfile.split('.')[0].split('/')[-1]}.pdf"
+	print(outputfile)
 
 	try:
 		pdf = matplotlib.backends.backend_pdf.PdfPages(outputfile)
@@ -443,13 +448,12 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 			regions = None
 
 		file = [f for f in datafiles if name in f][0]
-		data = np.load(file)
+		data = np.load(file, allow_pickle=True)
 
 		wfall = data['wfall']
 		storedshape = wfall.shape
 
 		df, dt_ms = row['f_res (mhz)'], row['time_res (s)']*1000
-		bandwidth = data['bandwidth']
 		lowest_freq = min(data['dfs']) # off by half a channel probably
 
 		# apply masks
@@ -462,9 +466,11 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 					wfall[m] = 0
 
 		# Check if the waterfall was subsampled before measuring and subsample if so
-		wfall = subsample(wfall, int(wfall.shape[0]/row['downf']), int(wfall.shape[1]/row['downt']))
+		if 'downf' in row and 'downt' in row:
+			wfall = subsample(wfall, int(wfall.shape[0]/row['downf']), int(wfall.shape[1]/row['downt']))
+		if 'tsamp_width' in row:
+			wfall = cropwfall(wfall, twidth=row['tsamp_width']) # crop after subsampling.
 
-		wfall = cropwfall(wfall, twidth=row['tsamp_width']) # crop after subsampling.
 		if 'subbg_start (ms)' in row and not np.isnan(row['subbg_start (ms)']):
 			tleft, tright = row['subbg_start (ms)'], row['subbg_end (ms)']
 			timerange = [0, round(dt_ms*wfall.shape[1])]
@@ -488,20 +494,32 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 
 		currentplot = next(ploti)
 		bname = name if not regions else subname
+		aspect = 'auto'
 		plt.subplot(nrows, ncols, currentplot)
-		plt.imshow(wfall, origin='lower', interpolation='none', aspect='auto', extent=extents)
+		plt.imshow(wfall, origin='lower', interpolation='none', aspect=aspect, extent=extents)
 		plt.axhline(y=row['center_f'], c='k', ls='--', lw=1)
 		plt.title(f'{bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('Time (ms)'), plt.ylabel('Freq (MHz)')
 
 		currentplot = next(ploti)
 		plt.subplot(nrows, ncols, currentplot)
-		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray', extent=corrextents)
+		plt.imshow(corr, origin='lower', interpolation='none', aspect=aspect, cmap='gray', extent=corrextents)
 		plt.clim(0, np.max(corr)/20)
 		plt.title(f'Corr {bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
 		if popt[0] > 0:
 			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
+			# slope check
+			xo, yo = (row['xo'] - fitmap.shape[1]/2)*dt_ms, (row['yo'] - fitmap.shape[0]/2)*dt_ms
+			lw = 0.8
+			x = np.array([
+					corrextents[2] / row['slope (mhz/ms)'] + xo*(1+lw),
+					corrextents[3] / row['slope (mhz/ms)'] + xo*(1+lw)
+				])
+			xp = np.array(corrextents[:2])
+			y = row['slope (mhz/ms)']*(x-xo*(1+lw)) # (1+lw) to account for line thickness when centering
+			plt.plot(x, y, 'c--', lw=lw)
+			plt.plot(xp, -(1/row['slope (mhz/ms)'])*(xp-xo*(1+lw)), 'b--', lw=lw) # perpendicular axis
 
 		if currentplot == nrows*ncols:
 			# save current page of pdf, start new page, reset counter
@@ -514,6 +532,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	plt.tight_layout()
 	pdf.savefig(plt.gcf())
 	pdf.close()
+	plt.close()
 	return True
 
 def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,

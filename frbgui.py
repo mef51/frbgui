@@ -745,7 +745,7 @@ def backupresults():
 	df = driftlaw.computeModelDetails(resultsdf)
 	datestr = datetime.now().strftime('%b%d')
 	prefix = 'backup'
-	filename = '{}_results_{}.csv'.format(prefix, datestr)
+	filename = 'backups/{}_results_{}.csv'.format(prefix, datestr)
 	df.to_csv(filename)
 
 def displayresult_cb(sender, data):
@@ -830,6 +830,7 @@ def initializeP0Group():
 		if type(val) == list:
 			val = val[0]
 		dpg.configure_item(item, speed=1/10**getscale(val), format='%.{}f'.format(getscale(val)+1))
+	dpg.configure_item('AngleDrag', speed=0.01, format='%.8f')
 	return p0
 
 def enablep0_cb(sender, data):
@@ -1184,7 +1185,7 @@ def frbgui(filefilter=gdata['globfilter'],
 					dpg.add_drag_float("AmplitudeDrag", label="Amplitude", enabled=False,
 						min_value=0, max_value=0, callback=updatep0_cb)
 					dpg.add_drag_float("AngleDrag", label="Angle", enabled=False,
-						min_value=0, max_value=0, callback=updatep0_cb)
+						min_value=0, max_value=0, speed=0.01, callback=updatep0_cb)
 					dpg.add_drag_float2("x0y0Drag", label="x0, y0", enabled=False,
 						min_value=0, max_value=0, speed=1, callback=updatep0_cb)
 					dpg.add_drag_float2("SigmaXYDrag", label="sigmax, sigmay", enabled=False,
