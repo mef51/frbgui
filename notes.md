@@ -551,3 +551,47 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 * martin pointed out that the fits are always good, so there should be a corresponding correct slope calculation. Look at just one measurement and see what the correct slope is
 * numerical precision limits the verticality of the slope, which is obviously apparent at big differences in aspect ratio: https://www.desmos.com/calculator/9nkuvrfzkb
 	* the problem angles are at around pi/2, which if you look at the derivative of tan(x), blows up at pi/2
+
+## nov 22
+*  the condition for computing theta from the angle assumes that sigmax < sigmay means that the angle is to the semiminor axis and should be offset by pi/2. But if the aspect ratio is extreme, as it is for the aggarwal bursts, then sigmax could be less than sigmay while the angle is to the semimajor axis. To check that this is true just plot the corresponding slope for both angles, and one of them should always be aligned with the ellipse.
+* B046 and B058 are narrowband bursts around an observed frequency of 1.4 ghz. It might be possible to infer nu_0 from a sample of narrowband bursts like these.
+* Narrowband bursts (about 200MHz across):
+	* B046
+	* B058
+	* B059
+	* B122
+* aspect ratio:
+	TestB006AngleTrend_64x305_results_63rows_Nov12.csv:
+		df/dt_ms = 38.1250000000019 wfall.shape[0]/wfall.shape[1] = 0.64 corr.shape[0]/corr.shape[1] = 0.6381909547738693
+	TestB006AngleTrend_64x610_results_63rows_Nov13.csv:
+		df/dt_ms = 76.24999999977126 wfall.shape[0]/wfall.shape[1] = 0.32 corr.shape[0]/corr.shape[1] = 0.3182957393483709
+	TestB006AngleTrend_results_63rows_Nov12.csv:
+		df/dt_ms = 152.5 wfall.shape[0]/wfall.shape[1] = 0.16 corr.shape[0]/corr.shape[1] = 0.15894868585732166
+
+## nov 25
+* based on the above the slope discrepancies can probably be solved by changing the gaussian solver to find a solution in data coordinates instead of channel coordinates.
+	* a check would be to plot the slopes in channel coordinates, and it will be aligned
+
+## dec 8
+* going through aggarwal bursts. made it so that you could use css colors. was mixing up purple and blue points (:
+
+## dec 9
+* go through remaining aggarwal bursts
+* implement data space solver
+* go through oosturm bursts
+* make a way of measuring bandiwdth, then do bandwidth vs frequency experiment
+* look at FAST frb121102 data
+	FAST Data Releases: https://fast.bao.ac.cn/cms/category/announcement_en/
+	FAST DR6
+	* FRB121102, ZD2020_5, about 10TB total obs May 16
+		* IDs 229, 566, 677, 685
+	* Several other FRB sources
+	FAST DR3 has Li et al. 2021a
+	* https://fast.bao.ac.cn/static/uploadfiles/FASTDocument/%E5%BC%80%E6%94%BE%E6%95%B0%E6%8D%AE%E8%A7%82%E6%B5%8B%E6%BA%90%E8%A1%A8/20190801-20191031-Observed%20Sources.pdf
+		* Id 36, 2019a-130-P, FRB121102
+* add fits to remaining model figures
+
+## dec 13
+* FRB 190520 is a repeater source with available data from FAST (at least 75 bursts) see Niu et al. https://arxiv.org/pdf/2110.07418.pdf
+* wrote demo that shows that measurement from data space solver is correct when the channel space measurement is wrong. The dramatic aspect ratio makes the conversion error more significant
+	* this means probably all our measurements are at least very slightly inaccurate.
