@@ -29,7 +29,11 @@ __pycache__
 *.p
 *.p.*
 *.egg-info*
+*.sublime-workspace
 
 data/*/*.txt
 dfdtresults/
 imgui.ini
+backups/
+results/old/
+tests/

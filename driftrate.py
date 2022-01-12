@@ -45,7 +45,7 @@ def moments(data):
 	the gaussian parameters of a 2D distribution by calculating its
 	moments """
 	total = data.sum()
-	X, Y = np.indices(data.shape)
+	X, Y = np.indices(data.shape) # this seems inconsistent with np.meshgrid
 	x = (X*data).sum()/total
 	y = (Y*data).sum()/total
 	col = data[:, int(y)]
@@ -76,6 +76,28 @@ def fitgaussiannlsq(data, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
 	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
 										  absolute_sigma=True, bounds=bounds)
 	return popt, pcov
+
+def getDataCoords(extents, shape):
+	x = np.linspace(extents[0], extents[1], num=shape[1])
+	y = np.linspace(extents[2], extents[3], num=shape[0])
+	x, y = np.meshgrid(x, y)
+	return x, y
+
+def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
+	# use curve-fit (non-linear leastsq)
+	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
+	x, y = getDataCoords(extents, data.shape)
+	# p0 = moments(data) if p0 == [] else p0 # moments is in channel space, needs to be rewritten for data space
+	p0 = [1,1,1,1,1,1] if p0 == [] else p0
+	sigma = np.zeros(len(data.ravel())) + sigma
+	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
+										  absolute_sigma=True, bounds=bounds)
+	return popt, pcov
+
+def makeDataFitmap(popt, corr, extents):
+	x, y = getDataCoords(extents, corr.shape)
+	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
+	return fitmap
 
 def _dedisperse(wfall, dm, freq, dt):
 	"""Dedisperse a dynamic spectrum.
@@ -208,6 +230,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	"""
 
 	corr = autocorr2d(burstwindow)
+	_, corrextents = getExtents(burstwindow,
+									  df=fres_MHz, dt=tres_ms, lowest_freq=lowest_freq)
 	# print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
 	# print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
 
@@ -222,7 +246,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		if popt_custom != []:
 			popt, perr = popt_custom, [-1,-1,-1,-1,-1,-1]
 		else:
-			popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
+			# popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
+			popt, pcov = fitdatagaussiannlsq(corr, corrextents, p0=p0, sigma=autocorr_sigma, bounds=bounds)
 			perr = np.sqrt(np.diag(pcov))
 			popt = list(popt); perr = list(perr) # avoid type errors
 
@@ -235,7 +260,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		if popt_custom != []:
 			popt = popt_custom
 
-	x, y = np.meshgrid(range(0, corr.shape[1]), range(0, corr.shape[0]))
+	x, y = getDataCoords(corrextents, corr.shape)
 	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
 
 	# calculate reduced chisquared
@@ -245,12 +270,10 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 
 	# Calculate slope
 	theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2 # defined via eqs. A2 and A3
-	# theta = -popt[5] # aggarwal hack
-	conversion = fres_MHz / (tres_ms)
-	slope = conversion * np.tan(theta) # MHz/ms
+	slope = np.tan(theta) # MHz/ms
 	# print(f'slope calc: {fres_MHz = } {tres_ms = } {theta = } {np.tan(theta) = }')
 	theta_err = perr[-1]
-	slope_error = conversion * (theta_err * (1/np.cos(theta))**2)
+	slope_error = (theta_err * (1/np.cos(theta))**2)
 
 	# find center frequency
 	center_f = findCenter(burstwindow)*fres_MHz + lowest_freq
@@ -414,7 +437,7 @@ def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 		subburstsobj[suffix] = subburst
 	return subburstsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4):
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, unitless=False):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -435,8 +458,10 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		if os.path.exists(masks):
 			masks = np.load(masks, allow_pickle=True)[0]
 
+	pname = ''
 	for name, row in resultsdf.iterrows():
-		print('plotting', name)
+		if pname != name: print('plotting', name)  # print once
+		pname = name
 		if '_' in name:
 			subname = name
 			name, suffix = name.split('_')
@@ -495,9 +520,22 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		currentplot = next(ploti)
 		bname = name if not regions else subname
 		aspect = 'auto'
+		if unitless:
+			corrextents, extent = None, None
+
 		plt.subplot(nrows, ncols, currentplot)
+		# print(f"{df/dt_ms = } {wfall.shape[0]/wfall.shape[1] = } {corr.shape[0]/corr.shape[1] = }")
 		plt.imshow(wfall, origin='lower', interpolation='none', aspect=aspect, extent=extents)
 		plt.axhline(y=row['center_f'], c='k', ls='--', lw=1)
+		if popt[0] > 0:
+			# add duration and slope markers to waterfall
+			pkidx = np.nanargmax(np.nanmean(wfall, axis=0))
+			plt.errorbar(pkidx*dt_ms, row['center_f'], xerr=row['tau_w_ms']/2, color='#4b0082',
+					 	 linewidth=2, capthick=2, capsize=5, fmt='none')
+			xo = pkidx*dt_ms
+			x = np.array([xo - row['tau_w_ms'], xo + row['tau_w_ms']])
+			plt.plot(x, row['slope (mhz/ms)']*x + row['center_f'] - row['slope (mhz/ms)']*xo, 'b--', lw=1.5)
+			plt.xlim(extents[:2]); plt.ylim(extents[2:])
 		plt.title(f'{bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('Time (ms)'), plt.ylabel('Freq (MHz)')
 
@@ -508,22 +546,45 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		plt.title(f'Corr {bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
 		if popt[0] > 0:
-			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents, origin='lower')
-			# slope check
+			corrextents = np.array(plt.gca().get_ylim() + plt.gca().get_xlim()) + 0.5 if unitless else corrextents
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents)
+			# plot line of corresponding slope
 			xo, yo = (row['xo'] - fitmap.shape[1]/2)*dt_ms, (row['yo'] - fitmap.shape[0]/2)*dt_ms
 			lw = 0.8
-			x = np.array([
-					corrextents[2] / row['slope (mhz/ms)'] + xo*(1+lw),
-					corrextents[3] / row['slope (mhz/ms)'] + xo*(1+lw)
-				])
+			if unitless:
+				xo, yo = row['xo'], row['yo']
+				lw = 1
+
+			def getx(slope):
+				if unitless:
+					return np.array([corrextents[2] / slope + xo, corrextents[3] / slope + xo])
+				else:
+					return np.array([corrextents[2] / slope + xo*(1+lw), corrextents[3] / slope + xo*(1+lw)])
+
+			x = getx(row['slope (mhz/ms)'])
+			units = 1 if unitless else df/dt_ms
+			slope1 = np.tan(popt[5])*units         # row['slope1']
+			slope2 = np.tan(popt[5]-np.pi/2)*units # row['slope2']
+
+			# print(f"{round(row['DM'], 2) = } {slope1 = } {slope2 = }")
+			x1 = getx(slope1)
+			x2 = getx(slope2)
 			xp = np.array(corrextents[:2])
-			y = row['slope (mhz/ms)']*(x-xo*(1+lw)) # (1+lw) to account for line thickness when centering
+
+			y  = row['slope (mhz/ms)']*(x-xo*(1+lw)) # (1+lw) to account for line thickness when centering
+			y1 = slope1*(x1-xo) if unitless else slope1*(x1-xo*(1+lw))
+			y2 = slope2*(x2-xo) if unitless else slope2*(x2-xo*(1+lw))
+
 			plt.plot(x, y, 'c--', lw=lw)
-			plt.plot(xp, -(1/row['slope (mhz/ms)'])*(xp-xo*(1+lw)), 'b--', lw=lw) # perpendicular axis
+			plt.plot(x1, y1, 'm--', lw=lw)
+			plt.plot(x2, y2, 'g--', lw=lw)
+			plt.xlim(corrextents[:2]); plt.ylim(corrextents[2:])
+			# plt.plot(xp, -(1/row['slope (mhz/ms)'])*(xp-xo*(1+lw)), 'w--', lw=lw) # perpendicular axis
 
 		if currentplot == nrows*ncols:
 			# save current page of pdf, start new page, reset counter
 			plt.tight_layout()
+			# plt.show()
 			pdf.savefig(plt.gcf())
 			plt.close()
 			plt.figure(figsize=figsize)

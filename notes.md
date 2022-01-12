@@ -594,4 +594,49 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 ## dec 13
 * FRB 190520 is a repeater source with available data from FAST (at least 75 bursts) see Niu et al. https://arxiv.org/pdf/2110.07418.pdf
 * wrote demo that shows that measurement from data space solver is correct when the channel space measurement is wrong. The dramatic aspect ratio makes the conversion error more significant
-	* this means probably all our measurements are at least very slightly inaccurate.
+	* this means the data solver will make all the measurements at least slightly more accurate
+* I don't think `moments()` is necessary for generating a p0 or if the p0 it generates is even useful
+
+## dec 14
+* data solver needs tweaked formulae for sigmax, sigmay, xo, yo, and tw
+
+## dec 20
+* in the Li et al. FRB121102 dataset there is about 60 bursts longer than 10ms, with 4 around 30ms and one about 65ms long, and one about 80ms long
+
+## dec 27
+* eq. A3 for duration reproduces the same result for B006 by just removing the tres factor.
+* how does this equation make sense?
+	* if a and b have the same units: then the ratio is unitless and there is a constant in the place of tres with C = 1ms
+	* if a and b have inverse units (the units of one are the inverse of the other) then the costheta and sintheta must have units. It is strange to have trig ratios with units but it is preicesly how we attach units to the slope so maybe its valid!
+	* the sum in the denominator implies a relationship between the units of a and b, which restricts what the possible units are
+		[a^2cos^2] = [b^2sin^2]
+		[a^2] = [b^2] with the usual assumption that cos and sin are unitless
+		[a] = [b]
+
+* another way to think of what the solver is doing is we give a model of the form
+	G(f, t) times Rot(theta)
+	Here we see that sigmax and sigmay have units of frequency and time respectively (The widths are independent of the rotation)
+	This means sigmax and sigmay have units that are inverse of each other, and we need to assign units to cos and sin for the addition to work.
+	Then the denominator is
+
+	[sin^2] = 1/[h]^2s^2 (h = hypoteneuse)
+	[cos^2] = s^2/[h]^2
+	[sqrt(1/s^2[cos^2] + s^2[sin^2])]
+	= sqrt(1/[h]^2 + 1/[h]^2)
+	= 1/h
+
+	Then the units of the ratio are [ab]x[h] = ms
+	and if [ab] = unitless then [h] = ms which would be odd
+* I choose the same units for a and b + unit constant option. This basically implies that a and b are unitless. The unit constant is determined by the units you decide to assign to the axes.
+* What does cos(theta) times sigmax give? >> using the data space solution it gives the duration directly.
+* Add a feature to the plot that reflects the burst width measured.
+
+## jan 10
+* make pdf of dec 8 aggarwal results
+
+## jan 11
+* fixed data solver in gui, result agrees well with example script up to differences in the subtract_bg call.
+* will redo measurements next and maybe add the slope lines to the gui plot
+
+## jan 12
+* add slope line to gui corr plot

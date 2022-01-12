@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.odr
-import itertools
+import itertools, re
 
 def computeModelDetails(frame):
 	""" Takes a dataframe and computes columns related to the dynamical frb model """
@@ -21,10 +21,16 @@ def computeModelDetails(frame):
 
 	frame['sigma_t']   = frame[['min_sigma','time_res (s)']].apply(lambda row: row['min_sigma']*row['time_res (s)'], axis=1)
 
-	frame['tau_w'] = frame[['time_res (s)', 'min_sigma', 'max_sigma', 'theta']].apply(
+	frame['tau_w_old'] = frame[['time_res (s)', 'min_sigma', 'max_sigma', 'theta']].apply(
 		lambda r: r['time_res (s)']*r['min_sigma']*r['max_sigma'] / np.sqrt( np.abs((np.sin(r['theta']-np.pi/2)*r['min_sigma'])**2 + (np.cos(r['theta']-np.pi/2)*r['max_sigma'])**2 )),
 		axis=1
 	)
+
+	frame['tau_w'] = frame[['min_sigma', 'max_sigma', 'theta']].apply(
+		lambda r: r['min_sigma']*r['max_sigma'] / np.sqrt( np.abs((np.sin(r['theta']-np.pi/2)*r['min_sigma'])**2 + (np.cos(r['theta']-np.pi/2)*r['max_sigma'])**2 )),
+		axis=1
+	)
+	frame['t_from_sigma'] = frame['min_sigma']*np.sin(frame['theta'])
 
 	# this error is in ms
 	frame['tau_w_error'] = frame[['tau_w', 'time_res (s)', 'min_sigma', 'max_sigma', 'min_sigma_error', 'max_sigma_error', 'theta', 'angle_error']].apply(
@@ -33,7 +39,8 @@ def computeModelDetails(frame):
 	)
 
 	frame['sigma_t_ms'] = frame['sigma_t']*1e3
-	frame['tau_w_ms'] = frame['tau_w']*1e3
+	frame['tau_w_ms'] = frame['tau_w']
+	frame['tau_w_ms_old'] = frame['tau_w_old']*1e3
 
 	## Redshift corrections
 	if 'z' in frame.index:
@@ -280,7 +287,9 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		if not hidefitlabel:
 			lstr = '{} fit ({:.3f} $\\pm$ {:.3f}) $t_w^{{-1}}$'.format(label, param, err)
 		if fi not in hidefit:
-			plt.plot(x, param/x, line, label=lstr)
+			color = re.match(r"\w+", line)[0]
+			lstyle = line.split(color)[-1]
+			plt.plot(x, param/x, color=color, ls=lstyle, label=lstr)
 
 	if title:
 		ax.set_title(title, size=fontsize)

@@ -236,19 +236,27 @@ def updatedata_cb(sender, data):
 
 	plotdata_cb(sender, data)
 
-def getcorr2dtexture(corr, popt=None, p0=None):
+def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
 	plt.figure(figsize=(5, 5))
 
-	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray')
+	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray',
+				extent=extents)
 	plt.clim(0, np.max(corr)/20)
 	if popt is not None and popt[0] > 0:
-		fitmap = driftrate.makeFitmap(popt, corr)
+		fitmap = driftrate.makeDataFitmap(popt, corr, extents)
 		if 1 not in fitmap.shape: # subsample ui can result in fitmaps unsuitable for countour plotting
-			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower')
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower',
+						extent=extents)
+			if slope is not None:
+				print(f"{slope = }")
+				xo = popt[1]
+				x = np.array([extents[2] / slope + xo, extents[3] / slope + xo])
+				plt.plot(x, slope*(x-xo), 'g--')
 
 	if p0 is not None and p0[0] > 0:
-		fitmap = driftrate.makeFitmap(p0, corr)
-		plt.contour(fitmap, [p0[0]/4, p0[0]*0.9], colors='g', alpha=0.75, origin='lower')
+		fitmap = driftrate.makeDataFitmap(p0, corr, extents)
+		plt.contour(fitmap, [p0[0]/4, p0[0]*0.9], colors='g', alpha=0.75, origin='lower',
+					extent=extents)
 
 	# remove axes, whitespace
 	plt.gca().set_axis_off()
@@ -272,12 +280,13 @@ def plotdata_cb(_, data):
 	ddm = gdata['displayedDM'] - gdata['burstDM']
 	burstname = dpg.get_value('burstname').replace(',', '')
 
-	popt = None
+	popt, slope = None, None
 	if gdata['resultsdf'] is not None:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		if not subburstdf.empty:
 			dmframe = subburstdf.loc[burstname].set_index('DM')
 			popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
+			slope = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])]['slope (mhz/ms)'].iloc[0]
 
 	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
 	if ('resultidx' not in data) or (subname == burstname):
@@ -293,6 +302,7 @@ def plotdata_cb(_, data):
 		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
 		dmframe = subburstdf.loc[subname].set_index('DM')
 		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
+		slope = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])]['slope (mhz/ms)'].iloc[0]
 
 	tseries = np.nanmean(wfall_dd_cr, axis=0)
 
@@ -342,7 +352,7 @@ def plotdata_cb(_, data):
 		pass
 
 	p0 = gdata['p0'] if dpg.get_value('EnableP0Box') else None
-	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0)
+	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0, correxts, slope)
 	dpg.add_texture("corr2dtexture", corr2dtexture, txwidth, txheight, format=dpg.mvTEX_RGB_INT)
 	dpg.add_image_series("Corr2dPlot", "Corr2d", "corr2dtexture",
 		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]]
@@ -492,7 +502,7 @@ def updateResultTable(resultsdf):
 	dpg.add_table('Resulttable', [], height=225, parent='ResultsGroup', callback=resulttable_cb)
 
 	# subset of driftrate.columns:
-	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'tau_w_ms', 'theta', 'center_f']
+	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'tau_w_ms', 'angle', 'center_f']
 	# columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
 	dpg.set_headers('Resulttable', columns)
 
@@ -607,13 +617,15 @@ def slope_cb(sender, data):
 
 	# Do a second pass using the best p0 just found
 	# TODO: only repeat bad fits
+	# TODO: remove?
 	p0 = getOptimalFit(burstdf)
 	if data is None:
 		# ensure p0 is in center of autocorr
-		if not (wfall_cr.shape[1]*0.9 <= float(p0[1]) <= wfall_cr.shape[1]*1.1):
-			p0[1] = wfall_cr.shape[1]
-		if not (wfall_cr.shape[0]*0.9 <= float(p0[2]) <= wfall_cr.shape[0]*1.1):
-			p0[2] = wfall_cr.shape[0]
+		# p0[1], p0[2] = 0, 0
+		# if not (wfall_cr.shape[1]*0.9 <= float(p0[1]) <= wfall_cr.shape[1]*1.1):
+		# 	p0[1] = 0
+		# if not (wfall_cr.shape[0]*0.9 <= float(p0[2]) <= wfall_cr.shape[0]*1.1):
+		# 	p0[2] = 0
 		# todo: find bad dms
 		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
 
@@ -1273,17 +1285,18 @@ def frbgui(filefilter=gdata['globfilter'],
 	dmrange_cb('user', None)
 
 	# loadresults_cb('user2', ['B:\\dev\\frbrepeaters\\results', 'FRB121102_oostrum_525rows_Aug28.csv'])
-
+	# dpg.set_global_font_scale(1.3)
 	dpg.start_dearpygui(primary_window='main') # blocks til closed
 	return gdata
 
 if __name__ == '__main__':
 	frbgui(
-		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		# datadir='B:\\dev\\frbrepeaters\\data\\simulated',
 		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		maskfile='aggarwalmasks_sept12.npy',
+		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		# maskfile='aggarwalmasks_sept12.npy',
 		# regionfile='burstregions_gajjaroct1.npy',
-		dmstep=1,
+		dmstep=0.5,
 		dmrange=[560, 570]
 	)
