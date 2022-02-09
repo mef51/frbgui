@@ -700,4 +700,4 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 * ~slope nu min for B124 doesnt make sense~ makes sense when looking at the measurements after exclusions
 
 ## feb 9
-*
+* the large error bar is due to a negative slope_nu_min. on a log scale this will go to -infinity

@@ -11,6 +11,7 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 
 	frame['slope_abs'] = -1*(frame['slope (mhz/ms)']) # multiply be negative 1 because of later measurement exclusions
 	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
+	frame['slope_over_nuobs_err'] = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
 	frame['recip_slope_over_nuobs'] = 1/frame['slope_over_nuobs']
 	frame['slope_abs_nuobssq'] = frame['slope_abs']/frame['center_f']**2/1000 # unitless
 	frame['min_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: min(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
@@ -258,6 +259,7 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 		fitframes, fitlabels = [], []
 		print('\n#', name + ':')
 		DMrangeLogger('', source)
+		if logging: print('> manually excluded:', exclude)
 		source = source.drop(exclude)
 
 		## Burst Exclusions
@@ -279,8 +281,12 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 		exclusionLogger('> exclusion rule: slope error > {}'.format(errorthreshold), source[~(source['slope error (mhz/ms)'] < errorthreshold)])
 		source = source[source['slope error (mhz/ms)'] < errorthreshold]
 
+		# exclude slope ranges that flip signs over the dm range (this is analgous to the large error exclusion)
+		exclusionLogger('> exclusion rule: negative slope ranges', source[~(source['slope_over_nuobs'] > source['slope_over_nuobs_err'])])
+		source = source[source['slope_over_nuobs'] > source['slope_over_nuobs_err']]
+
 		DMrangeLogger(name, source, burstwise=True) # log the dm range after we're done excluding
-		source = sloperanges(source) # compute drift ranges after normal burst exclusions
+		source = sloperanges(source) # compute drift ranges after burst exclusions
 
 		for dm, color in zip(source.DM.unique(), itertools.cycle(['r', 'y', 'b', 'k', 'g', 'c', 'm'])):
 			df = source[source.DM == dm]
