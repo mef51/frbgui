@@ -221,7 +221,7 @@ def autocorr2d(data):
 
 def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
 				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
-				 sigmawindow=(0,50),
+				 corrsigma=(0,50),
 				 verbose=True):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
@@ -239,7 +239,13 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		corr = np.clip(corr, nclip, clip)
 
 	#### Autocorr noise
-	autocorr_sigma = np.std( corr[:, sigmawindow[0]:sigmawindow[1]] )
+	if not corrsigma:
+		corrsigma = (0, 50)
+		autocorr_sigma = np.std( corr[:, corrsigma[0]:corrsigma[1]] )
+	elif type(corrsigma) == tuple or type(corrsigma) == list:
+		autocorr_sigma = np.std( corr[:, corrsigma[0]:corrsigma[1]] )
+	else:
+		autocorr_sigma = corrsigma
 
 	#### Fit Gaussian to autocorrelation.
 	try:
@@ -323,7 +329,8 @@ columns = [
 	'time_res (s)'
 ]
 
-def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[]):
+def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
+				   corrsigma=(0,50)):
 	results = []
 	for trialDM in tqdm(dmrange):
 		view = np.copy(wfall)
@@ -331,7 +338,8 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
 
 		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
-		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0)
+		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0,
+									corrsigma=corrsigma)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
@@ -437,7 +445,21 @@ def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 		subburstsobj[suffix] = subburst
 	return subburstsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, unitless=False):
+def readRegions(resultsdf):
+	regionsdf = resultsdf.loc[~np.isnan(resultsdf['background'])]
+	bursts_with_regions = regionsdf.index.unique()
+
+	regionsobj = {}
+	for burst in bursts_with_regions:
+		name, suffix = '_'.join(burst.split('_')[:-1]), burst.split('_')[-1]
+		if suffix not in subburst_suffixes:
+			regionsobj[burst] = {}
+			regionsobj[burst]['background'] = [0, float(resultsdf.loc[burst][['background']].iloc[0])]
+		else:
+			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
+	return regionsobj
+
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -452,7 +474,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	try:
 		pdf = matplotlib.backends.backend_pdf.PdfPages(outputfile)
 	except PermissionError as e:
-		return False
+		return "Permission Denied"
 
 	if type(masks) == str: # filename
 		if os.path.exists(masks):
@@ -462,9 +484,9 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	for name, row in resultsdf.iterrows():
 		if pname != name: print('plotting', name)  # print once
 		pname = name
-		if '_' in name:
+		if 'background' in row.index and not np.isnan(row['background']) and '_' in name:
 			subname = name
-			name, suffix = name.split('_')
+			name, suffix = '_'.join(name.split('_')[:-1]), name.split('_')[-1]
 			regcols = [col for col in row.index if 'reg' in col]
 			regcols.append('background') if 'background' in row.index else None
 			regions = {suffix: [row[f'regstart_{suffix}'], row[f'regend_{suffix}']]}
@@ -515,13 +537,11 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		corr = autocorr2d(wfall)
 		popt = [row['amplitude'], row['xo'], row['yo'], row['sigmax'], row['sigmay'], row['angle']]
 
-		fitmap = makeFitmap(popt, corr)
+		fitmap = makeDataFitmap(popt, corr, corrextents)
 
 		currentplot = next(ploti)
 		bname = name if not regions else subname
 		aspect = 'auto'
-		if unitless:
-			corrextents, extent = None, None
 
 		plt.subplot(nrows, ncols, currentplot)
 		# print(f"{df/dt_ms = } {wfall.shape[0]/wfall.shape[1] = } {corr.shape[0]/corr.shape[1] = }")
@@ -546,40 +566,13 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		plt.title(f'Corr {bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
 		if popt[0] > 0:
-			corrextents = np.array(plt.gca().get_ylim() + plt.gca().get_xlim()) + 0.5 if unitless else corrextents
 			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents)
 			# plot line of corresponding slope
-			xo, yo = (row['xo'] - fitmap.shape[1]/2)*dt_ms, (row['yo'] - fitmap.shape[0]/2)*dt_ms
-			lw = 0.8
-			if unitless:
-				xo, yo = row['xo'], row['yo']
-				lw = 1
-
-			def getx(slope):
-				if unitless:
-					return np.array([corrextents[2] / slope + xo, corrextents[3] / slope + xo])
-				else:
-					return np.array([corrextents[2] / slope + xo*(1+lw), corrextents[3] / slope + xo*(1+lw)])
-
-			x = getx(row['slope (mhz/ms)'])
-			units = 1 if unitless else df/dt_ms
-			slope1 = np.tan(popt[5])*units         # row['slope1']
-			slope2 = np.tan(popt[5]-np.pi/2)*units # row['slope2']
-
-			# print(f"{round(row['DM'], 2) = } {slope1 = } {slope2 = }")
-			x1 = getx(slope1)
-			x2 = getx(slope2)
-			xp = np.array(corrextents[:2])
-
-			y  = row['slope (mhz/ms)']*(x-xo*(1+lw)) # (1+lw) to account for line thickness when centering
-			y1 = slope1*(x1-xo) if unitless else slope1*(x1-xo*(1+lw))
-			y2 = slope2*(x2-xo) if unitless else slope2*(x2-xo*(1+lw))
-
-			plt.plot(x, y, 'c--', lw=lw)
-			plt.plot(x1, y1, 'm--', lw=lw)
-			plt.plot(x2, y2, 'g--', lw=lw)
+			xo, yo = row['xo'], row['yo']
+			slope = row['slope (mhz/ms)']
+			x = np.array([corrextents[2] / slope + xo, corrextents[3] / slope + xo])
+			plt.plot(x, slope*(x-xo), 'g--', lw=1.5)
 			plt.xlim(corrextents[:2]); plt.ylim(corrextents[2:])
-			# plt.plot(xp, -(1/row['slope (mhz/ms)'])*(xp-xo*(1+lw)), 'w--', lw=lw) # perpendicular axis
 
 		if currentplot == nrows*ncols:
 			# save current page of pdf, start new page, reset counter

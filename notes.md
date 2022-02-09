@@ -640,3 +640,64 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 
 ## jan 12
 * add slope line to gui corr plot
+* looked like weird hysteresis on B006 with twidth? Can't reproduce
+* redoing the range while "use initial guess" is checked breaks the corr plot
+* ~p0 looks wild when plotted~
+
+## jan 14
+* redoing aggarwal set roughly to make a comparison between channel space and data space slopes
+* this gui tool rocks
+* different durations are used across the datasets (while i redo them) so will need to be explicit about the duration used
+
+## jan 17/18
+* no major difference between the aggarwal bursts, but they do tend to higher slopes near the vertical so the range is larger
+* aggarwal bursts need a lot of polishing. will redo oostrum first
+
+## jan 19
+* redid oostrum measurements. will redo gajjar next
+
+## jan 21
+* does the law describe the Li et al. bursts (bimodal)?
+
+## jan 24
+* oostrum and aggarwal burst durations changed after remeasurement but not gajjar
+
+## jan 26
+* downloading li et al. bursts. can use list to identify the specific bursts i want
+* figure 1 plot is broken
+
+## jan 27
+* fig 1 does two main things:
+	* filters the measurements and computes ranges for the points displayed
+	* finds the shaded regions for the fits
+
+## jan 31
+* fig 1 rewrite can reproduce old figure
+
+## feb 1
+* reviewing measurements
+
+## feb 2
+* aggarwal dm range needs to be wider. their figure 5 suggests 553-578 pc/cm3
+* gui regions are broken
+	* when loading results regions are not recreated and subburst results cannot be viewed
+	* if a multiburst is measured, then navigated away from, and then returned to, clicking a subburst in the results table doesnt load the burst
+
+## feb 4
+* reviewing and adding measurements
+	* increase dm range via gui
+	* measure li bursts
+	* fix regions in gui
+
+## feb 7
+* for li bursts: fits record is weird shaped, not sure how to read it
+* B109 in aggarwal has huge ranges for some reason
+	* splitting bursts seems to drive the slope error extremely small and the red_chisq extremely huge for most of the split bursts' measurements
+	* this seems to happen because the subbursts are zeropadded and autocorrsigma is found by sampling the zero region, which affects the slope error found and the reduced chisq calculation. You can see this in B093 as the errors become normal once the burst is so dedispersed that the noisy region is touching the default window used to compute autocorrsigma, and you get a good value for autocorrisgma again. One fix is to ensure that you sample autocorrsigma from the actual burst data. Or just sample it once and use the same value for all bursts
+
+## feb 8
+* fix autocorr bug
+* ~slope nu min for B124 doesnt make sense~ makes sense when looking at the measurements after exclusions
+
+## feb 9
+*

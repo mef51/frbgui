@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 import scipy.odr
 import itertools, re
 
-def computeModelDetails(frame):
+def computeModelDetails(frame, channelSpaceDuration=False):
 	""" Takes a dataframe and computes columns related to the dynamical frb model """
 	frame = frame.copy()
 	tauwerror_expr = lambda r: 1e3*r['time_res (s)']*np.sqrt(r['max_sigma']**6*r['min_sigma_error']**2*np.cos(r['theta']-np.pi/2)**4 + r['angle_error']**2*r['max_sigma']**2*r['min_sigma']**2*(-r['max_sigma']**2 + r['min_sigma']**2)**2*np.cos(r['theta']-np.pi/2)**2*np.sin(r['theta']-np.pi/2)**2 + r['max_sigma_error']**2*r['min_sigma']**6*np.sin(r['theta']-np.pi/2)**4)/(r['max_sigma']**2*np.cos(r['theta']-np.pi/2)**2 + r['min_sigma']**2*np.sin(r['theta']-np.pi/2)**2)**1.5
 
-	frame['slope_abs'] = -1*(frame['slope (mhz/ms)'])
+	frame['slope_abs'] = -1*(frame['slope (mhz/ms)']) # multiply be negative 1 because of later measurement exclusions
 	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
 	frame['recip_slope_over_nuobs'] = 1/frame['slope_over_nuobs']
 	frame['slope_abs_nuobssq'] = frame['slope_abs']/frame['center_f']**2/1000 # unitless
@@ -39,8 +39,10 @@ def computeModelDetails(frame):
 	)
 
 	frame['sigma_t_ms'] = frame['sigma_t']*1e3
-	frame['tau_w_ms'] = frame['tau_w']
+	frame['tau_w_ms'] = frame['tau_w'] # alias, units are implicit when solving in data space
 	frame['tau_w_ms_old'] = frame['tau_w_old']*1e3
+	if channelSpaceDuration: # hack to force channel space equation for old measurements
+		frame['tau_w_ms'] = frame['tau_w_ms_old']
 
 	## Redshift corrections
 	if 'z' in frame.index:
@@ -204,6 +206,136 @@ def sloperanges(source):
 
 	return source
 
+def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
+					 tagColors=['r', 'r', 'b', 'g', 'y', 'c', 'tomato', 'c'],
+					 showDMtraces=False):
+	"""
+	1. filter
+	2. color
+	3. tags data that is at the target dm and splits up measurements by dm
+	4. finds range of fits by source
+	5. do some extra computations (?)
+	"""
+	if not (len(sources) == len(names) == len(exclusions) == len(targetDMs)):
+		raise ValueError(
+			"Sources, names, exclusions, and targetDMs are not the same length",
+			len(sources), len(names), len(exclusions), len(targetDMs)
+			)
+	def exclusionLogger(exclusionstr, frame):
+		if not logging:
+			return
+		print(exclusionstr)
+		count = 0
+		if frame.empty:
+			print(">> bursts excluded: \n\tnone")
+		else:
+			print('>> bursts excluded:',
+				  *[f"\n\t{exname} DM = {row['DM']}" for exname, row in frame.iterrows()])
+			count += len(frame)
+		print(f'>> # of measurements excluded: {count}')
+		print(f'>> # of bursts limited: {len(frame.index.unique())}')
+		return count
+
+	def DMrangeLogger(sname, frame, burstwise=False):
+		if not logging:
+			return
+		if not burstwise:
+			if type(frame) == pd.core.series.Series:
+				print(f"{sname}\tDM Range: {frame[0]} pc/cm3")
+			else:
+				print(f"{sname}\t DM Range: {min(frame['DM'])} - {max(frame['DM'])} pc/cm3")
+		else:
+			print(f'>>> {sname} DM Range by burst:')
+			for bname in frame.index.unique():
+				DMrangeLogger(f'\tburst {bname}:', frame.loc[bname])
+		return
+
+	bakeddata = { 'frames': [], 'labels': [], 'colors': itertools.cycle(tagColors) }
+	fitdata = pd.DataFrame()
+	extradata = {}
+	extradata['Bconstants'] = []
+	for source, name, exclude, targetDM in zip(sources, names, exclusions, targetDMs):
+		fitframes, fitlabels = [], []
+		print('\n#', name + ':')
+		DMrangeLogger('', source)
+		source = source.drop(exclude)
+
+		## Burst Exclusions
+		# exclude bursts that where a fit was not found
+		exclusionLogger('> exclusion rule: no fit found', source[~(source.amplitude > 0)])
+		source = source[source.amplitude > 0]
+
+		# exclude positive drifts, we assume they are non-physical and an artifact of over dedispersion
+		exclusionLogger('> exclusion rule: slope_abs < 0', source[~(source.slope_abs > 0)])
+		source = source[source.slope_abs > 0]
+
+		# exclude slopes with large relative errors
+		relerrthreshold = 0.4 # (40%)
+		exclusionLogger(f'> exclusion rule: rel slope error > {relerrthreshold}', source[~(abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold)])
+		source = source[abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold]
+
+		# exclude slopes with huge errors, they are vertical and poorly measured
+		errorthreshold = 1e8
+		exclusionLogger('> exclusion rule: slope error > {}'.format(errorthreshold), source[~(source['slope error (mhz/ms)'] < errorthreshold)])
+		source = source[source['slope error (mhz/ms)'] < errorthreshold]
+
+		DMrangeLogger(name, source, burstwise=True) # log the dm range after we're done excluding
+		source = sloperanges(source) # compute drift ranges after normal burst exclusions
+
+		for dm, color in zip(source.DM.unique(), itertools.cycle(['r', 'y', 'b', 'k', 'g', 'c', 'm'])):
+			df = source[source.DM == dm]
+			df['color'] = color
+			fitframes.append(df)
+			fitlabels.append(dm)
+
+			# Figure 1
+			if np.isclose(dm, targetDM):
+				print(f'>> num bursts remaining = {len(df.index.unique())}')
+				df['color'] = next(bakeddata['colors'])
+				bakeddata['frames'].append(df)
+				bakeddata['labels'].append(name)
+
+			# For Ref figure A, turn off otherwise
+			# if dm == 565:
+			#     df['color'] = 'b'
+			# if dm == 348.82:
+			#     df['color'] = 'r'
+
+			# Figure 5: compute drift/nu^2 vs nu range of fits
+			nus = np.linspace(0, 20000, num=2000)
+			popt, pcov = scipy.optimize.curve_fit(lambda x, c: c, nus, df['slope_abs_nuobssq'])
+			extradata['Bconstants'].append((popt[0], np.sqrt(pcov[0])))
+
+		markcolors = []
+		for f in fitframes:
+			markcolors.append(f['color'].iloc[0])
+		markcolors = itertools.cycle(markcolors)
+		# manylines = ['r--', 'y-', 'b-.', 'k--', 'g--', 'c-.', 'r-', 'b-', 'k-', 'g-', 'c-']
+		linestyles = ['--', '-', '-.', '--', '--', '-.', '-', '-', '-', '-', '-']
+		manylines = [next(markcolors)+lst for lst in linestyles]
+		labels = [round(lbl, 2) for lbl in fitlabels]
+		tempax, fits = plotSlopeVsDuration(fitframes, labels, annotatei=[], fitlines=manylines,
+			logscale=True, fiterrorfunc=log_error, dmtrace=True, hidefitlabel=True)
+
+		for fit in fits:
+			fitdata = fitdata.append({'name': name.split(' DM')[0],
+										'DM': fit[0],
+										'param': fit[1],
+										'err': fit[2] ,
+										'red_chisq': fit[3],
+										'numbursts': fit[5]},
+										ignore_index=True)
+	if not showDMtraces: plt.close('all')
+	return bakeddata, fitdata, sources, extradata
+
+def listDMFitResults(fitdata):
+	for name in fitdata.name.unique():
+		df = fitdata.loc[(fitdata.name == name)]# & (fitdata.numbursts > 1.0)]
+		df = df.set_index('DM')
+		display(df)
+		print('minimal red_chisq:')
+		display(df[df.red_chisq == df.red_chisq.min()])
+
 def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
 						markers=['o', 'p', 'X', 'd', 's'], hidefit=[], hidefitlabel=False,
 						fitlines=['r-', 'b--', 'g-.'], fitextents=None,
@@ -306,136 +438,6 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	plt.tight_layout()
 
 	return ax, fits
-
-	######
-
-	ax = michillibursts.plot.scatter(x='tau_w_ms', y='slope_over_nuobs',
-								   xerr=np.sqrt(michillibursts['red_chisq'])*michillibursts['tau_w_error'],
-								   yerr=np.sqrt(michillibursts['red_chisq'])*michillibursts['slope error (mhz/ms)']/michillibursts['center_f'],
-								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='o', edgecolors='k',
-								   label='FRB121102 Michilli et al. (2018)')
-
-	selectbursts180916.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
-								   xerr=np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['tau_w_error'],
-								   yerr=np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['slope error (mhz/ms)']/selectbursts180916['center_f'],
-								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='p', edgecolors='k',
-								   label='FRB180916.J0158+65 bursts')
-	selectbursts180814.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
-								   xerr=np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['tau_w_error'],
-								   yerr=np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['slope error (mhz/ms)']/selectbursts180814['center_f'],
-								   figsize=figsize, s=markersize+50, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='X', edgecolors='k',
-								   label='FRB180814.J0422+73 bursts')
-								   #label='FRB180814.J0422+73 bursts @ DM={} pc/cm$^3$'.format(dms180814[dm_idx]))
-	burstsSGR1935.plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
-								   xerr=np.sqrt(burstsSGR1935['red_chisq'])*burstsSGR1935['tau_w_error'],
-								   yerr=np.sqrt(burstsSGR1935['red_chisq'])*burstsSGR1935['slope error (mhz/ms)']/burstsSGR1935['center_f'],
-								   figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize, logy=logscale, logx=logscale, marker='p', edgecolors='k',
-								   label='SGR1935+2154 bursts')
-
-	otherbursts.head(5).plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
-							 xerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['tau_w_error'],
-							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['slope error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
-							 figsize=figsize, s=markersize, c='color', colorbar=False, marker='d', label='FRB121102 Gajjar et al. (2018)')
-	otherbursts.tail(1).plot.scatter(ax=ax, x='tau_w_ms', y='slope_over_nuobs',
-							 xerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['tau_w_error'],
-							 yerr=np.sqrt(otherbursts['red_chisq'])*otherbursts['slope error (mhz/ms)']/otherbursts['center_f'], edgecolors='k',
-							 figsize=figsize, s=markersize, c='color', colorbar=False, marker='s', label='FRB121102 Josephy et al. (2019)')
-
-	# for k, v in otherbursts.iterrows():
-	#     ax.annotate(k+'_c', (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
-	# for k, v in michillibursts.iterrows():
-	#     ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
-	# for k, v in selectbursts180916.iterrows():
-	#     ax.annotate(int(k) if k != 15.5 else k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
-	for k, v in burstsSGR1935.iterrows():
-		if v['slope_over_nuobs'] > 0 or not logscale:
-			ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
-	# for k, v in selectbursts180814.iterrows():
-	#     if v['slope_over_nuobs'] > 0:
-	#         ax.annotate(k, (v['tau_w_ms'], v['slope_over_nuobs']), xytext=(-3,5), textcoords='offset points', weight='bold', size=annotsize)
-
-	if not logscale:
-		pass
-		# ax.set_xlim(-0.1, 20)
-		# ax.set_ylim(-0.2, 4)
-	elif logscale:
-		ax.set_xlim(0.04, 20)
-		ax.set_ylim(10**-3, 10**1)
-
-	# ax.set_title('Sub-burst slope Rate vs. Burst Duration (fit to Michilli bursts)', size=fontsize)
-	ax.set_xlabel('Sub-burst Duration $t_\\mathrm{w}$ (ms)', size=fontsize)
-	ax.set_ylabel('Sub-burst slope Rate $\,(1/\\nu_{\\mathrm{obs}}) \left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|$ (ms$^{-1}$)', size=fontsize)
-
-	def slopenu_error(frame):
-		sx = np.log((frame['tau_w_ms'] + np.sqrt(frame['red_chisq'])*frame['tau_w_error']) / frame['tau_w_ms'])
-		sy = np.log((frame['slope_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['slope error (mhz/ms)'])) / frame['slope_over_nuobs'])
-		return sx, sy
-
-	# ODR fit log
-	num_to_fit = 24 #23 to exlude chime
-	fitdata_log = scipy.odr.RealData(np.log(selectbursts121102.head(num_to_fit)['tau_w_ms']),
-								 np.log(selectbursts121102.head(num_to_fit)['slope_over_nuobs']),
-								 sx=slopenu_error(selectbursts121102.head(num_to_fit))[0],
-								 sy=slopenu_error(selectbursts121102.head(num_to_fit))[1])
-								 #sx=np.log(np.sqrt(selectbursts121102.head(num_to_fit)['red_chisq'])*selectbursts121102.head(num_to_fit)['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts121102.head(num_to_fit)['red_chisq'])*selectbursts121102.head(num_to_fit)['slope error (mhz/ms)']/selectbursts121102.head(num_to_fit)['center_f']))
-	odrfitter_log = scipy.odr.ODR(fitdata_log, fit_model_log, beta0=[500])
-	odrfitter_log.set_job(fit_type=0)
-	odrfit_log = odrfitter_log.run()
-
-	# ODR fit log 180916
-	fitdata_log_180916 = scipy.odr.RealData(np.log(selectbursts180916['tau_w_ms']),
-								 np.log(selectbursts180916['slope_over_nuobs']),
-								 sx=slopenu_error(selectbursts180916)[0],
-								 sy=slopenu_error(selectbursts180916)[1])
-								 #sx=np.log(np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts180916['red_chisq'])*selectbursts180916['slope error (mhz/ms)']/selectbursts180916['center_f'] ))
-	odrfitter_log180916 = scipy.odr.ODR(fitdata_log_180916, fit_model_log, beta0=[1000])
-	odrfitter_log180916.set_job(fit_type=0)
-	odrfit_log180916 = odrfitter_log180916.run()
-
-	# ODR fit log 180814
-	fitdata_log_180814 = scipy.odr.RealData(np.log(selectbursts180814['tau_w_ms']),
-								 np.log(selectbursts180814['slope_over_nuobs']),
-								 sx=slopenu_error(selectbursts180814)[0],
-								 sy=slopenu_error(selectbursts180814)[1])
-								 #sx=np.log(np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['tau_w_error']),
-								 #sy=np.log(np.sqrt(selectbursts180814['red_chisq'])*selectbursts180814['slope error (mhz/ms)']/selectbursts180814['center_f'] ))
-	odrfitter_log180814 = scipy.odr.ODR(fitdata_log_180814, fit_model_log, beta0=[1000])
-	odrfitter_log180814.set_job(fit_type=0)
-	odrfit_log180814 = odrfitter_log180814.run()
-
-	### Plot fits
-	x = np.linspace(0, 20, num=1200)
-	opts  = [np.exp(odrfit_log.beta), np.exp(odrfit_log180916.beta), np.exp(odrfit_log180814.beta)]
-	errs  = [opts[0]*(np.exp(odrfit_log.sd_beta)-1), opts[1]*(np.exp(odrfit_log180916.sd_beta)-1), opts[2]*(np.exp(odrfit_log180814.sd_beta)-1)]
-	#errs  = [np.exp(odrfit_log.sd_beta), np.exp(odrfit_log180916.sd_beta), np.exp(odrfit_log180814.sd_beta)]
-	#names = ['Fit from FRB121102 bursts', 'Fit from FRB180916.J0158+65 bursts', 'Fit from FRB180814.J0422+73 bursts']
-
-	names = ['FRB121102 fit', 'FRB180916.J0158+65 fit', 'FRB180814.J0422+73 fit']
-	ls    = ['r-', 'b--', 'g-.']
-	for opt, err, name, l in zip(opts, errs, names, ls):
-		print(opt, err)
-		lstr = '{} ({:.3f} $\\pm$ {:.3f}) / $t_w$'.format(name, opt[0], err[0])
-		plt.plot(x, opt[0]/x, l, label=lstr)
-
-	handles, labels = ax.get_legend_handles_labels()
-	#handles = [handles[0], handles[2], handles[4], handles[5], handles[1], handles[3]]
-	#labels = [labels[0], labels[2], labels[4], labels[5], labels[1], labels[3]]
-	# handles = [handles[2], handles[5], handles[6], handles[4], handles[3], handles[0], handles[1]]
-	# labels = [labels[2], labels[5], labels[6], labels[4], labels[3], labels[0], labels[1]]
-	handles = [handles[3], handles[6], handles[7], handles[5], handles[4], handles[0], handles[1], handles[2]]
-	labels = [labels[3], labels[6], labels[7], labels[5], labels[4], labels[0], labels[1], labels[2]]
-	plt.legend(handles, labels, fontsize='xx-large')
-	# 2 digits, ytitle
-
-	# plt.title("Non Redshift Corrected", size=20)
-	#plt.title("FRB121102, FRB180916.J0158+65, and FRB180814.J0422+73", size=20)
-	plt.tight_layout()
-	# plt.savefig('180814_dm{}.png'.format(dms180814[dm_idx]))
-	# print('180814_dm{}.png'.format(dms180814[dm_idx]))
-	# for f in ['png', 'pdf', 'eps']: plt.savefig('figures/{}.{}'.format(filename, f))
-	# for f in ['png']: plt.savefig('figures/{}.{}'.format(filename, f))
 
 def _plotAnglevsDM(frames, annotate=False, save=False, drops=[]):
 	thetamodel = scipy.odr.Model(atanmodel)

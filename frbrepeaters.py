@@ -27,7 +27,7 @@ def loadpsrfits(filename, dedisperse=True):
 		'dfs'       : ar.getFreqs(),
 		'DM'        : ar.getDM(),
 		'bandwidth' : ar.getBandwidth(),
-		'duration'  : ar.getDuration(),
+		'duration'  : ar.getDuration(), # usually in seconds
 		'center_f'  : ar.getCenterFrequency(),
 		'freq_unit' : ar.getFrequencyUnit(),
 		'time_unit' : ar.getTimeUnit(),

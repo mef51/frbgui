@@ -78,12 +78,14 @@ def updatedata_cb(sender, data):
 						# dfs = loaded[key]
 						gdata['burstmeta']['bandwidth'] = abs(loaded['bandwidth'])
 						df = gdata['burstmeta']['bandwidth'] / wfall.shape[0]
+						print(df, loaded['bandwidth'], storedshape[1]*1000)
 						gdata['burstmeta']['fres_original'] = df
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
 						dt = loaded['duration'] / storedshape[1]*1000
+						print(dt, loaded['duration'], storedshape[1]*1000)
 						gdata['burstmeta']['duration'] = loaded['duration']
 						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
@@ -248,7 +250,7 @@ def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
 			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower',
 						extent=extents)
 			if slope is not None:
-				print(f"{slope = }")
+				print(f"{slope = } {list(popt) = }")
 				xo = popt[1]
 				x = np.array([extents[2] / slope + xo, extents[3] / slope + xo])
 				plt.plot(x, slope*(x-xo), 'g--')
@@ -257,6 +259,8 @@ def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
 		fitmap = driftrate.makeDataFitmap(p0, corr, extents)
 		plt.contour(fitmap, [p0[0]/4, p0[0]*0.9], colors='g', alpha=0.75, origin='lower',
 					extent=extents)
+	plt.xlim(extents[:2])
+	plt.ylim(extents[2:])
 
 	# remove axes, whitespace
 	plt.gca().set_axis_off()
@@ -492,7 +496,7 @@ def resulttable_cb(sender, data):
 	newsel = coords[0].copy()
 	for coord in coords:
 		dpg.set_table_selection('Resulttable', coord[0], coord[1], False)
-	print("resultidx = ", newsel[0])
+	# print("resultidx = ", newsel[0])
 	displayresult_cb('User', {'resultidx': newsel[0]})
 
 def updateResultTable(resultsdf):
@@ -605,11 +609,12 @@ def slope_cb(sender, data):
 	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq, p0)
 
 	if gdata['multiburst']['enabled']:
-		subbursts = getSubbursts()
+		subbursts, corrsigma = getSubbursts(getcorrsigma=True)
 		subresults, subdf = [], pd.DataFrame()
 		for subname, subburst in subbursts.items():
 			print('processing {}'.format(subname))
-			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt, lowest_freq)
+			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt,
+												  lowest_freq, corrsigma=corrsigma)
 			subresults.append(ret)
 			subdf = subdf.append(retdf)
 
@@ -631,6 +636,7 @@ def slope_cb(sender, data):
 
 	# Add measurement info to row (things needed to reproduce/reload the measurement)
 	cols, row = getMeasurementInfo(wfall_cr)
+	print('measurement info >>', cols, row)
 	burstdf[cols] = row
 
 	# Save results
@@ -666,14 +672,15 @@ def redodm_cb(sender, data):
 
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 	displayedname = gdata['displayedBurst']
+	corrsigma = None
 	if gdata['multiburst']['enabled'] and displayedname != burstname:
-		subbursts = getSubbursts()
+		subbursts, corrsigma = getSubbursts(getcorrsigma=True)
 		wfall_cr = subbursts[displayedname]
 
 	print('redoing ', displayedname, gdata['displayedDM'], f'with {df = } {dt =} {lowest_freq = }')
 	result, burstdf = driftrate.processDMRange(
 		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
-		df, dt, lowest_freq, p0=p0
+		df, dt, lowest_freq, p0=p0, corrsigma=corrsigma
 	)
 	print(f'{result = }')
 	cols, row = getMeasurementInfo(wfall_cr)
@@ -726,6 +733,8 @@ def loadresults_cb(sender, data):
 	resultsfile = os.path.join(*data)
 	resultsdf = pd.read_csv(resultsfile).set_index('name')
 	gdata['resultsdf'] = resultsdf
+	regionsobj = driftrate.readRegions(resultsdf)
+	gdata['multiburst']['regions'] = regionsobj
 	burstselect_cb(sender, data)
 
 def exportresults_cb(sender, data):
@@ -735,7 +744,7 @@ def exportresults_cb(sender, data):
 
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
-	filename = '{}_results_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
+	filename = '{}_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
 	try:
 		df.to_csv(filename)
 		dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
@@ -818,7 +827,7 @@ def getOptimalFit(df):
 	bestrow = df[df.red_chisq == df.red_chisq.min()]
 	if len(bestrow) > 1:
 		bestrow = bestrow.head(1)
-	p0 = [bestrow[param] for param in params]
+	p0 = [float(bestrow[param]) for param in params]
 	return p0
 
 def initializeP0Group():
@@ -827,7 +836,7 @@ def initializeP0Group():
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 	wfall_cr = getCurrentBurst()[-2]
 	p0 = getOptimalFit(subburstdf)
-	p0f = [p0i.iloc[0] for p0i in p0]
+	p0f = [p0i for p0i in p0] # why?
 	if p0f[0] < 0:
 		p0f = [-p0fi if p0fi < 0 else p0fi for p0fi in p0f]
 
@@ -835,7 +844,7 @@ def initializeP0Group():
 	dpg.set_value("AmplitudeDrag", p0f[0])
 	dpg.set_value("AngleDrag", p0f[5])
 	# solution will always be near the center
-	dpg.set_value("x0y0Drag", [wfall_cr.shape[1], wfall_cr.shape[0]])
+	dpg.set_value("x0y0Drag", [0.01, 0.01]) # dpg glitches if you use 0,0
 	dpg.set_value("SigmaXYDrag", [p0f[3], p0f[4]])
 	for item in ['AmplitudeDrag', 'AngleDrag', 'x0y0Drag', 'SigmaXYDrag']:
 		val = dpg.get_value(item)
@@ -902,14 +911,6 @@ def exportregions_cb(sender, data):
 	np.save(filename, [saveobj])
 	print(saveobj)
 	print('Saved', filename)
-
-def importregions_cb(sender, data):
-	if data is None:
-		return
-	filename = data
-	if os.path.exists(filename):
-		loadobj = np.load(filename, allow_pickle=True)[0]
-		gdata['multiburst']['regions'] = loadobj
 
 def addregion_cb(sender, data):
 	regionSelector()
@@ -978,7 +979,7 @@ def regionSelector():
 	gdata['multiburst']['numregions'] += 1
 
 subburst_suffixes = driftrate.subburst_suffixes
-def getSubbursts():
+def getSubbursts(getcorrsigma=False):
 	if not gdata['multiburst']['enabled']:
 		return []
 
@@ -1006,14 +1007,20 @@ def getSubbursts():
 		error_log_cb("getSubbursts", "Please specify a background region")
 		raise "Please specify a background region"
 
-	# pad with background
-	# for subburst in subbursts:
 	subburstsobj = {}
+	# pad with background
 	for subburst, suffix in zip(subbursts, subburst_suffixes):
 		subburst = np.concatenate((0*background, subburst, 0*background), axis=1)
 		subname = burstname +'_'+ suffix # '_' is used in plotResults to split names
 		subburstsobj[subname] = subburst
-	return subburstsobj
+
+	if getcorrsigma:
+		# zero padding bursts ruins the sampling of sigma so we will sample from the full waterfall
+		corr = driftrate.autocorr2d(wfall_cr)
+		corrsigma = np.std( corr[:, 0:50] )
+		return subburstsobj, corrsigma
+	else:
+		return subburstsobj
 
 def subtractbg_cb(sender, data):
 	if sender == 'EnableSubBGBox':
@@ -1275,7 +1282,6 @@ def frbgui(filefilter=gdata['globfilter'],
 	directory_cb('user', [datadir])
 	burstselect_cb('burstselect', None)
 	importmask_cb('user', maskfile)
-	importregions_cb('user', regionfile)
 	burstselect_cb('burstselect', None) # silly trick to load regions on start
 
 	## dm range defaults
@@ -1285,7 +1291,7 @@ def frbgui(filefilter=gdata['globfilter'],
 	dmrange_cb('user', None)
 
 	# loadresults_cb('user2', ['B:\\dev\\frbrepeaters\\results', 'FRB121102_oostrum_525rows_Aug28.csv'])
-	# dpg.set_global_font_scale(1.3)
+	dpg.set_global_font_scale(1)
 	dpg.start_dearpygui(primary_window='main') # blocks til closed
 	return gdata
 
@@ -1295,8 +1301,9 @@ if __name__ == '__main__':
 		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
-		# maskfile='aggarwalmasks_sept12.npy',
+		maskfile='aggarwalmasks_sept12.npy',
 		# regionfile='burstregions_gajjaroct1.npy',
 		dmstep=0.5,
+		# dmrange=[555, 575],
 		dmrange=[560, 570]
 	)
