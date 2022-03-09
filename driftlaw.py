@@ -176,6 +176,35 @@ def fitodr(frame, beta0=[1000], errorfunc=log_error, log=True):
 		# print('linear odr')
 		return odrfitter.run()
 
+def limitedDMrangeerror(frame):
+	ex = [np.array([frame['tau_w_ms'] - frame['lim_tw_min'], frame['lim_tw_max'] - frame['tau_w_ms']])]
+	ey = [np.array([frame['slope_over_nuobs'] - frame['lim_slope_nu_min'], frame['lim_slope_nu_max'] - frame['slope_over_nuobs']])]
+	return ex, ey
+
+def limitedDMsloperanges(fitdf, source, threshold=0):
+	""" Like `sloperanges` but only for DMs where all the bursts in a sample have valid measurements """
+	dms = fitdf.loc[fitdf.numbursts == fitdf.numbursts.max()].index
+	mindm, maxdm = min(dms), max(dms)
+	source = source.reset_index().set_index('DM').loc[dms].reset_index().set_index('name')
+	# source_lim = source.reset_index().set_index('DM').loc[dms].reset_index().set_index('name')
+
+	yaxis = 'slope_over_nuobs'
+	xaxis ='tau_w_ms'
+	for burst in source.index.unique():
+		burstdf = source.loc[burst] # s/source/source_lim
+		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
+		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
+
+		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
+		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
+
+		source.loc[burst, 'lim_slope_nu_max'] = dmax
+		source.loc[burst, 'lim_slope_nu_min'] = dmin
+		source.loc[burst, 'lim_tw_max']    = tmax
+		source.loc[burst, 'lim_tw_min']    = tmin
+
+	return source
+
 def sloperanges(source):
 	"""
 	Given all burst and model data at different trial DMs,
@@ -294,13 +323,6 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 			fitframes.append(df)
 			fitlabels.append(dm)
 
-			# Figure 1
-			if np.isclose(dm, targetDM):
-				print(f'>> num bursts remaining = {len(df.index.unique())}')
-				df['color'] = next(bakeddata['colors'])
-				bakeddata['frames'].append(df)
-				bakeddata['labels'].append(name)
-
 			# For Ref figure A, turn off otherwise
 			# if dm == 565:
 			#     df['color'] = 'b'
@@ -323,14 +345,32 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 		tempax, fits = plotSlopeVsDuration(fitframes, labels, annotatei=[], fitlines=manylines,
 			logscale=True, fiterrorfunc=log_error, dmtrace=True, hidefitlabel=True)
 
-		for fit in fits:
-			fitdata = fitdata.append({'name': name.split(' DM')[0],
-										'DM': fit[0],
-										'param': fit[1],
-										'err': fit[2] ,
-										'red_chisq': fit[3],
-										'numbursts': fit[5]},
-										ignore_index=True)
+		for fit, dm in zip(fits, fitlabels):
+			fitresult = {
+					'name': name.split(' DM')[0],
+					'DM': dm,
+					'param': fit[1],
+					'err': fit[2] ,
+					'red_chisq': fit[3],
+					'numbursts': fit[5]
+				}
+			fitdata = fitdata.append(fitresult,ignore_index=True)
+
+		fitdf = fitdata.loc[(fitdata.name == name)].set_index('DM')
+		source = limitedDMsloperanges(fitdf, source)
+		tagged = False
+		for dm, color in zip(source.DM.unique(), itertools.cycle(['r', 'y', 'b', 'k', 'g', 'c', 'm'])):
+			# Figure 1
+			df = source[source.DM == dm]
+			if np.isclose(dm, targetDM):
+				print(f'>> num bursts remaining = {len(df.index.unique())}')
+				df['color'] = next(bakeddata['colors'])
+				bakeddata['frames'].append(df)
+				bakeddata['labels'].append(name)
+				tagged = True
+		if not tagged:
+			print(">> No measurements at target DM")
+
 	if not showDMtraces: plt.close('all')
 	return bakeddata, fitdata, sources, extradata
 

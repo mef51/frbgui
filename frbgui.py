@@ -605,6 +605,9 @@ def slope_cb(sender, data):
 		dpg.set_value('SlopeStatus', 'Status: Calculating...')
 		p0 = []
 		trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
+		if not dpg.get_value('RepeatBox') and gdata['resultsdf'] is not None:
+			trialDMs = list(set(gdata['resultsdf'].loc[burstname]['DM']) ^ set(trialDMs))
+			# remove DMs that are in gdata['resultsdf'] from trialDMs
 
 	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq, p0)
 
@@ -643,15 +646,14 @@ def slope_cb(sender, data):
 	if gdata['resultsdf'] is None:
 		gdata['resultsdf'] = burstdf
 	else:
-		# overwrite if there are already results
-		if gdata['resultsdf'].index.str.startswith(burstname).any():
-			df = gdata['resultsdf']
-			gdata['resultsdf'] = df.drop(df[df.index.str.startswith(burstname)].index)
-		gdata['resultsdf'] = gdata['resultsdf'].append(burstdf)
+		# overwrite if there are already results while adding new results
+		gdata['resultsdf'] = (burstdf.append(gdata['resultsdf']) # add new and updated measurements
+									.reset_index().drop_duplicates(['name', 'DM']) # drop old measurements
+									.set_index('name').sort_values(['name', 'DM'])) # sort table
 	backupresults()
 	print(gdata['resultsdf'])
 
-	# burstdf = burstdf.loc[burstname] # remove??
+	burstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 	gdata['burstdf'] = burstdf
 
 	dpg.set_value('SlopeStatus', 'Status: Done.')
@@ -1159,6 +1161,9 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 			dpg.add_same_line()
 			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
+			dpg.add_checkbox('RepeatBox', label='Repeat measurements',
+				default_value=True, enabled=True
+			)
 			dpg.add_button("Load Results",
 				callback=lambda s, d:dpg.open_file_dialog(loadresults_cb, extensions='.csv'))
 			dpg.add_same_line()
@@ -1298,12 +1303,13 @@ def frbgui(filefilter=gdata['globfilter'],
 if __name__ == '__main__':
 	frbgui(
 		# datadir='B:\\dev\\frbrepeaters\\data\\simulated',
-		datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
+		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
-		maskfile='aggarwalmasks_sept12.npy',
+		datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		# maskfile='aggarwalmasks_sept12.npy',
+		# maskfile='oostrummasks_aug28.npy',
 		# regionfile='burstregions_gajjaroct1.npy',
 		dmstep=0.5,
 		# dmrange=[555, 575],
-		dmrange=[560, 570]
+		dmrange=[555, 575]
 	)

@@ -701,3 +701,48 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 
 ## feb 9
 * the large error bar is due to a negative slope_nu_min. on a log scale this will go to -infinity
+
+## feb 10
+* im happy with the state of the measurements for now. i want to measure the FAST bursts
+* fast data has 2 polarizations. and i dont understand fits table rows
+
+## feb 11
+* paper has link to github repo with code that handles their fits stuff https://github.com/NAOC-pulsar/PeiWang-code
+* fits waterfalls are much wider than burst
+
+## feb 14
+* Jahns 2022: holy bananas
+	* analyse frb121102 from arecibo data, find A = 0.1 like we did but with many more bursts
+	* they use a different form of gaussian, they say its better im not sure why yet
+	* they do a detailed analysis of finding the "true" dm using the law
+
+## feb 15
+* dedisperse the fast waterfalls, the dispersive delay is a few seconds which would explain the width of the waterfalls they gave
+* rewriting slopecb to handle updates to the results without deleting them. try seeing if the pandas one liner reproduces the old behaviour
+
+## feb 16
+* appending and dropping updates the table while adding new results:
+	* https://stackoverflow.com/questions/48226460/efficient-solutions-insert-or-update-row-pandas
+
+## feb 18
+* tqdm has a file option that can be used to redirect the output to the gui
+* added a checkbox and a set operation to add dm measurements without having to recompute old measurements
+
+## feb 24
+* continuing redoing measurements
+
+## feb 28
+* finished aggarwal
+
+## mar 2
+* the lowest red_chisq for oostrum is when the DM is 555, but you start losing bursts after 562.5, which is close to the 562.8 found in jahns et al. So i wonder if the optimal dm is the one just before you start losing bursts. When using 555, even though the red_chisq is minimal, the points look flatter than the fit.
+
+## mar 3
+* add limitedDMsloperanges
+
+## mar 4
+* rewrite limited DM ranges to work with bakemeasurements
+
+## mar 8
+* limited DM ranges runs now
+* limited dm range affects what DMs can be used as the targetDM. would be nice to automate the selection of target DM

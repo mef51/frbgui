@@ -446,6 +446,8 @@ def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 	return subburstsobj
 
 def readRegions(resultsdf):
+	if 'background' not in resultsdf.columns:
+		return {}
 	regionsdf = resultsdf.loc[~np.isnan(resultsdf['background'])]
 	bursts_with_regions = regionsdf.index.unique()
 
