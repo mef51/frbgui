@@ -746,3 +746,34 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 ## mar 8
 * limited DM ranges runs now
 * limited dm range affects what DMs can be used as the targetDM. would be nice to automate the selection of target DM
+
+## mar 10
+* fit regions match limited dm range
+* i dont think minimizing red chisq is sufficient for picking an optimal DM
+
+## mar 14
+* can see burst from Li's extended figure 9 but it doesnt dedisperse at the right value (300 instead of 565)
+* will try to read it with `your`
+	* works well with `your`
+
+## mar 15
+* I'd like to recheck the red_chisq calculations when finalizing the figures
+* meeting:
+	* dont include drift rates with subburst fit
+
+## mar 17
+* read in pulse lists from Li, some cleanup. Energy distribution is bimodal but looks different from what they published
+
+## mar 18
+* in the Li dataset: peak flux is inversely proportional to the width
+
+## mar 22
+* peak flux is inversely proportional to the width because of how flux is defined not because of anything to do with FRBs
+
+## mar 23
+* preparing the sample of li bursts
+	* need better masking tools (range inputs, etc) and/or a flux limit. some bursts are invisible still.
+
+## mar 25
+* masking range ui elements work, wip on implementing the masking
+* basic range masking works

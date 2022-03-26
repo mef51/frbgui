@@ -17,7 +17,7 @@ twidth_default = 150
 # GUI data is stored in this object. Defaults initialized here and at the bottom
 gdata = {
 	'globfilter'     : '*.npz',
-	'masks'          : {},                   # will store lists of masked channel numbers
+	'masks'          : {},                   # will store masks, either lists of channels or ranges
 	'datadir'        : '',
 	'multiburst'     : {                     # store all multiburst metadata
 						'numregions': 1,
@@ -38,9 +38,15 @@ def getscale(m, M=-1): # used for dynamically rounding numbers for display
 	return ret
 
 def applyMasks(wfall):
-	for mask in gdata['masks'][gdata['currfile']]:
+	for mask in gdata['masks'][gdata['currfile']]['chans']:
 		if mask < len(wfall):
 			wfall[mask] = 0
+
+	for rangeid, maskrange in gdata['masks'][gdata['currfile']]['ranges'].items():
+		masks = np.arange(maskrange[0], maskrange[1]+1)
+		for mask in masks:
+			wfall[mask] = 0
+
 	if 'sksgmask' in gdata and dpg.get_value('EnableSKSGMaskBox'):
 		wfall[gdata['sksgmask'], :] = 0
 
@@ -60,7 +66,7 @@ def updatedata_cb(sender, data):
 		filename = gdata['files'][data['fileidx']]
 		gdata['currfile'] = filename
 		if gdata['currfile'] not in gdata['masks'].keys():
-			gdata['masks'][gdata['currfile']] = [] # initialize list
+			gdata['masks'][gdata['currfile']] = {'chans':[], 'ranges':{}}
 		burstname = makeburstname(filename)
 		dpg.set_value('burstname', burstname)
 		loaded = np.load(filename)
@@ -453,8 +459,8 @@ def removemask_cb(sender, data):
 	mask = int(dpg.get_table_item('Masktable', coord[0], coord[1]))
 	# print(type(mask), type(gdata['masks'][gdata['currfile']]), type(gdata['masks'][gdata['currfile']][0]))
 	# print(mask, gdata['masks'][gdata['currfile']], mask in gdata['masks'][gdata['currfile']])
-	if mask in gdata['masks'][gdata['currfile']]:
-		gdata['masks'][gdata['currfile']].remove(mask)
+	if mask in gdata['masks'][gdata['currfile']]['chans']:
+		gdata['masks'][gdata['currfile']]['chans'].remove(mask)
 		dpg.log_debug('removing {} from {} mask'.format(mask, gdata['currfile']))
 		updatedata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
@@ -471,7 +477,7 @@ def masktable_cb(sender, data):
 
 	columns = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
 	for key, col in zip(gdata['masks'].keys(), columns):
-		dpg.add_column('Masktable', col, gdata['masks'][key])
+		dpg.add_column('Masktable', col, gdata['masks'][key]['chans'])
 
 def sksgmask_cb(sender, data):
 	items = ['SKSGSigmaInput','SKSGWindowInput','SKSGStatus']
@@ -526,8 +532,8 @@ def mousemask_cb(sender, data):
 		mask = np.interp(rawmask, spectralrange, [0, gdata['wfall_original'].shape[0]])
 		mask = int(mask)
 
-		if mask not in gdata['masks'][gdata['currfile']]:
-			gdata['masks'][gdata['currfile']].append(mask)
+		if mask not in gdata['masks'][gdata['currfile']]['chans']:
+			gdata['masks'][gdata['currfile']]['chans'].append(mask)
 
 		updatedata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
@@ -951,6 +957,31 @@ def drawregion_cb(sender, data):
 			color=colors[(int(regid)-1) % len(colors)]
 		)
 
+gdata['maskrangeid'] = 0
+def addMaskRange_cb(sender, data):
+	maxchan = gdata['wfall_original'].shape[0]-1
+	before = 'MaskRangeButton'
+	gdata["maskrangeid"] += 1
+	with dpg.group(f'MaskRange{gdata["maskrangeid"]}', horizontal=True, parent='SplittingSection',
+		before=before):
+		dpg.add_drag_int2(f'rangeslider##{gdata["maskrangeid"]}', label='Mask Range', width=200,
+			callback=maskrange_cb,
+			min_value=0, max_value=maxchan)
+		dpg.add_button(f'removerange##{gdata["maskrangeid"]}', label='X', enabled=True,
+			callback=removemaskrange_cb)
+
+def removemaskrange_cb(sender, data):
+	del gdata['masks'][gdata['currfile']]['ranges'][f"rangeslider##{sender[-1]}"]
+	dpg.delete_item(f'MaskRange{sender[-1]}')
+	updatedata_cb(sender, {'keepview': True})
+
+def maskrange_cb(sender, data):
+	maskrange = dpg.get_value(sender)
+	# print(gdata['masks'][gdata['currfile']], '\n----')
+	gdata['masks'][gdata['currfile']]['ranges'][sender] = maskrange
+	updatedata_cb(sender, {'keepview': True})
+	# masktable_cb(sender, None)
+
 def regionSelector():
 	regid = gdata['multiburst']['numregions']
 	before = "AddRegionBtn" if regid > 1 else ""
@@ -1126,7 +1157,10 @@ def frbgui(filefilter=gdata['globfilter'],
 					callback=lambda s, d: dpg.open_file_dialog(importmask_cb, extensions='.npy'),
 					enabled=True)
 
-				dpg.add_table('Masktable', [], height=50)
+				dpg.add_table('Masktable', [], height=100)
+
+				dpg.add_button("MaskRangeButton", label='Add Mask Range', callback=addMaskRange_cb,
+								enabled=True)
 
 			with dpg.tree_node('Auto Masking', default_open=True):
 				dpg.add_checkbox('EnableSKSGMaskBox', label='Enable SK-SG Filter', default_value=False,
@@ -1305,7 +1339,8 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\simulated',
 		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
-		datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
+		datadir='E:\\Li2021\\samp*',
 		# maskfile='aggarwalmasks_sept12.npy',
 		# maskfile='oostrummasks_aug28.npy',
 		# regionfile='burstregions_gajjaroct1.npy',
