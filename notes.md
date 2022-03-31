@@ -777,3 +777,81 @@ regionname = 'Region5' regiontype = 0 region = [0, 41]
 ## mar 25
 * masking range ui elements work, wip on implementing the masking
 * basic range masking works
+
+## mar 28
+* Li site went down, wrote a loop to keep trying the site until its back
+* change the colors of this figure 1 just to have a visual break between this paper and the last. The results are different even though the figures basically look the same.
+Namely that FRB121102 bursts from all frequencies follow the trend, whereas the previous paper only showed high frequency FRB121102 bursts in comparison with the other sources
+
+Notes from Martin about fits:
+
+> it looks like in several cases the broken green line is misaligned relative to the blue ellipse in the autocorrelation fits. Take a look at B025 and B026 at the optimum DM=559.5, for example.
+
+This is a display quirk from the distorted aspect ratio, if you look at the very bottom and top of the ellipse, the slope line crosses the lowest and highest points of the ellipse as you would want it to
+
+> Bad fit: B023, B046, B056, B059, B062, B076, B079, B093b, B106?, B109a, B122, B133
+
+B023 is already excluded
+B046 has lots of wrapping
+B056 is good enough
+B059 has some wrapping
+B062 is bad, couldn't figure how to improve
+B076 is already excluded
+B079 exclude based on being cutoff
+B093b fit can be improved
+B106 fit is too wide
+B109a fit is too wide
+B112 is incorrect at higher dms
+B133 fit is wide
+
+> To reconsider: B016, B042, B047, B059, B079, B091, B093b, B128
+
+B016 needs wider window
+B042 looks fine to me
+B047 looks fine to me
+B059 looks fine to me
+B079 i decided to exclude, it is at the top of the band
+B091 wraps, low snr, have excluded it
+B128 fit is wide, low snr as well, have excluded it
+
+> Gajjar Burst to remove: 11A, 12A
+
+Just to double check do we remove these because of the difference between sad trombone and the  intra-burst law?
+Removing these increases the optimal DM for gajjar from 555 to 556
+
+> Bad fit: 11B, Wrap around 11I
+
+Yes
+
+> Oostrum Bad fit: R1_B08, R1_B09, R1_B10, R1_B12, R1_B14
+
+R1_B08 low snr
+R1_B09 low snr, already excluded
+R1_B10 low snr
+R1_B12 low snr
+R1_B14 bad fit
+
+> To reconsider: R1_B08, R1_B09, R1_B10, R1_B12, R1_B13, R1_B21, R1_B23, R1_B24, R1_B25, R1_B27, R1_B28
+
+excluding R1_B08, 9, 10, and 12 does not change optimal dm
+
+R1_B13 low snr
+R1_B21 low snr
+R1_B23 low snr
+R1_B24 low snr
+R1_B25 low snr
+R1_B27 low snr
+R1_B28 low snr
+
+a lot of these are low snr but the measurements based on the superimposed helpers on the figure seem to be fine.
+The snr for most of these can likely easily be improved
+
+> My main comment would be that, visually, an optimum DM of 563.5 is probably too high. I would think that closer to 560 would be it
+
+It seems to me hard to say visually but would like to hear why. I think 560 makes more sense in context of the other measurements but I dont have any other reason for picking it
+
+## mar 30
+* start draft
+* resample fast bursts
+* noise ranges are missing when switching between bursts
+	* keep them attached to their files

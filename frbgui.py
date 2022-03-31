@@ -131,6 +131,19 @@ def updatedata_cb(sender, data):
 		dpg.set_value('twidth', twidth_default)
 		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
 
+		# update mask range controls
+		gdata['maskrangeid'] = 0
+		dpg.delete_item("MaskRangeGroup", children_only=True)
+		if gdata['masks'][gdata['currfile']]['ranges']:
+			print('ranges exist')
+			print(gdata['masks'][gdata['currfile']]['ranges'])
+			rangeids = []
+			for rangeid, maskrange in gdata['masks'][gdata['currfile']]['ranges'].items():
+				rangeids.append(rangeid)
+				addMaskRange_cb(sender, rangeid)
+				dpg.set_value(f'rangeslider##{rangeid}', maskrange)
+			gdata['maskrangeid'] = max(rangeids) # guarantee no collisions
+
 		# update result controls and reproduce measurement state
 		if gdata['resultsdf'] is not None:
 			hasResults = burstname in gdata['resultsdf'].index.unique()
@@ -957,28 +970,29 @@ def drawregion_cb(sender, data):
 			color=colors[(int(regid)-1) % len(colors)]
 		)
 
-gdata['maskrangeid'] = 0
-def addMaskRange_cb(sender, data):
+
+def addMaskRange_cb(sender, rangeid):
 	maxchan = gdata['wfall_original'].shape[0]-1
-	before = 'MaskRangeButton'
-	gdata["maskrangeid"] += 1
-	with dpg.group(f'MaskRange{gdata["maskrangeid"]}', horizontal=True, parent='SplittingSection',
-		before=before):
-		dpg.add_drag_int2(f'rangeslider##{gdata["maskrangeid"]}', label='Mask Range', width=200,
+	if not rangeid:
+		gdata["maskrangeid"] += 1
+		rangeid = gdata["maskrangeid"]
+	with dpg.group(f'MaskRange{rangeid}', horizontal=True, parent='MaskRangeGroup'):
+		dpg.add_drag_int2(f'rangeslider##{rangeid}', label='Mask Range', width=200,
 			callback=maskrange_cb,
 			min_value=0, max_value=maxchan)
-		dpg.add_button(f'removerange##{gdata["maskrangeid"]}', label='X', enabled=True,
+		dpg.add_button(f'removerange##{rangeid}', label='X', enabled=True,
 			callback=removemaskrange_cb)
 
 def removemaskrange_cb(sender, data):
-	del gdata['masks'][gdata['currfile']]['ranges'][f"rangeslider##{sender[-1]}"]
+	if f"rangeslider##{sender[-1]}" in gdata['masks'][gdata['currfile']]['ranges']:
+		del gdata['masks'][gdata['currfile']]['ranges'][f"rangeslider##{sender[-1]}"]
 	dpg.delete_item(f'MaskRange{sender[-1]}')
 	updatedata_cb(sender, {'keepview': True})
 
 def maskrange_cb(sender, data):
 	maskrange = dpg.get_value(sender)
 	# print(gdata['masks'][gdata['currfile']], '\n----')
-	gdata['masks'][gdata['currfile']]['ranges'][sender] = maskrange
+	gdata['masks'][gdata['currfile']]['ranges'][sender[-1]] = maskrange
 	updatedata_cb(sender, {'keepview': True})
 	# masktable_cb(sender, None)
 
@@ -1158,6 +1172,9 @@ def frbgui(filefilter=gdata['globfilter'],
 					enabled=True)
 
 				dpg.add_table('Masktable', [], height=100)
+
+				with dpg.group("MaskRangeGroup"):
+					pass
 
 				dpg.add_button("MaskRangeButton", label='Add Mask Range', callback=addMaskRange_cb,
 								enabled=True)
