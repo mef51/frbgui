@@ -855,3 +855,20 @@ It seems to me hard to say visually but would like to hear why. I think 560 make
 * resample fast bursts
 * noise ranges are missing when switching between bursts
 	* keep them attached to their files
+
+## apr 1
+* 0576 is duplicate
+
+## apr 4
+* add ability to change original dm in gui
+* old mask exporting will work, will need to update the pdf and mask importing to work with ranges
+	* would be nice to just write the mask to the results csv
+
+## apr 5
+* dmchange_cb should update the npz otherwise some bizarre things will happen with the plotresults code and when reviewing measurements
+	* can always go back to the pulse id list if i want the original dm
+* the delta_dm calculated in dmchange is wrong because the initial dm gets updated as you change the value
+	* check if subsampling has happened before changing dm since we need to update the waterfall in the npz too
+
+## apr 6
+* make dm save a little cleaner. write to disk and trigger reload when committing to a dm

@@ -185,6 +185,16 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 
 	return wfall[..., ledge:redge]
 
+def updatenpz(npz, field, val):
+	data = np.load(npz)
+	newdata = {}
+	for key in data.files:
+		if key == field:
+			newdata[key] = val
+		else:
+			newdata[key] = data[key]
+	np.savez(npz, **newdata)
+
 def autocorr2d(data):
 
 	# Returns a 2D autocorrelation computed via an intermediate FFT

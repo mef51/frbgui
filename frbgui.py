@@ -45,7 +45,8 @@ def applyMasks(wfall):
 	for rangeid, maskrange in gdata['masks'][gdata['currfile']]['ranges'].items():
 		masks = np.arange(maskrange[0], maskrange[1]+1)
 		for mask in masks:
-			wfall[mask] = 0
+			if mask < len(wfall):
+				wfall[mask] = 0
 
 	if 'sksgmask' in gdata and dpg.get_value('EnableSKSGMaskBox'):
 		wfall[gdata['sksgmask'], :] = 0
@@ -130,6 +131,7 @@ def updatedata_cb(sender, data):
 		# update meta controls
 		dpg.set_value('twidth', twidth_default)
 		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
+		dpg.configure_item('SaveDMButton', enabled=False)
 
 		# update mask range controls
 		gdata['maskrangeid'] = 0
@@ -982,10 +984,12 @@ def addMaskRange_cb(sender, rangeid):
 			min_value=0, max_value=maxchan)
 		dpg.add_button(f'removerange##{rangeid}', label='X', enabled=True,
 			callback=removemaskrange_cb)
+	if sender[-1] not in gdata['masks'][gdata['currfile']]['ranges']:
+		gdata['masks'][gdata['currfile']]['ranges'][sender[-1]] = [0, 0]
 
 def removemaskrange_cb(sender, data):
-	if f"rangeslider##{sender[-1]}" in gdata['masks'][gdata['currfile']]['ranges']:
-		del gdata['masks'][gdata['currfile']]['ranges'][f"rangeslider##{sender[-1]}"]
+	if sender[-1] in gdata['masks'][gdata['currfile']]['ranges']:
+		del gdata['masks'][gdata['currfile']]['ranges'][sender[-1]]
 	dpg.delete_item(f'MaskRange{sender[-1]}')
 	updatedata_cb(sender, {'keepview': True})
 
@@ -1090,6 +1094,36 @@ def toggle_config(sender, data):
 	for item in data['items']:
 		dpg.configure_item(item, **config_dict)
 
+def dmchange_cb(sender, data):
+	newDM = round(dpg.get_value('DM'), 3)
+
+	# update
+	gdata['displayedDM'] = newDM
+	dpg.set_value('dmdisplayed', str(gdata['displayedDM']))
+	if gdata['wfall'].shape == gdata['wfall_original'].shape:
+		dpg.configure_item('SaveDMButton', enabled=True)
+	plotdata_cb(sender, data)
+
+def savedm_cb(sender, data):
+	newDM = round(dpg.get_value('DM'), 3)
+	npz = gdata['currfile']
+	if gdata['wfall'].shape == gdata['wfall_original'].shape:
+		if os.path.isfile(npz):
+			# write new DM and waterfall to disk, then trigger a reload
+			fileidx = dpg.get_value('burstselect')
+
+			df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
+			lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
+			ddm = newDM - gdata['burstDM']
+			wfall = np.copy(gdata['wfall_original'])
+			wfall = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
+
+			driftrate.updatenpz(npz, 'wfall', wfall)
+			driftrate.updatenpz(npz, 'DM', newDM)
+			burstselect_cb(sender, None)
+			print(f'updated DM of {npz} to {newDM}')
+			dpg.configure_item('SaveDMButton', enabled=False)
+
 def frbgui(filefilter=gdata['globfilter'],
 		datadir=None,
 		maskfile=None,
@@ -1116,7 +1150,9 @@ def frbgui(filefilter=gdata['globfilter'],
 
 			dpg.add_text("Burst Metadata:")
 			dpg.add_input_text('burstname', label='Burst Name')
-			dpg.add_input_float('DM', label='DM (pc/cm^3)')
+			dpg.add_input_float('DM', label='DM (pc/cm3)', callback=dmchange_cb, step=0.100000)
+			dpg.add_same_line()
+			dpg.add_button("SaveDMButton", label='Save', callback=savedm_cb, enabled=False)
 			dpg.add_input_float('dt', label='Time Resolution (ms)')
 			dpg.add_input_float('df', label='Freq Resolution (MHz)')
 			dpg.add_input_float('center_f', label='Center Frequency (MHz)')
@@ -1357,7 +1393,7 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
-		datadir='E:\\Li2021\\samp*',
+		datadir='E:\\Li2021\\samp_wait*',
 		# maskfile='aggarwalmasks_sept12.npy',
 		# maskfile='oostrummasks_aug28.npy',
 		# regionfile='burstregions_gajjaroct1.npy',
