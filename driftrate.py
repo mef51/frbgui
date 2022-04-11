@@ -340,9 +340,11 @@ columns = [
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
-				   corrsigma=(0,50)):
+				   corrsigma=(0,50), tqdmout=None, progress_cb=None):
 	results = []
-	for trialDM in tqdm(dmrange):
+	prog = 0
+	for trialDM in tqdm(dmrange, file=tqdmout):
+		prog += 1
 		view = np.copy(wfall)
 		ddm = trialDM - burstdm
 		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
@@ -353,6 +355,8 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
+		if progress_cb:
+			progress_cb(prog/len(dmrange), f"{prog}/{len(dmrange)}")
 
 	df = exportresults(results)
 	return results, df
@@ -496,7 +500,8 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	for name, row in resultsdf.iterrows():
 		if pname != name: print('plotting', name)  # print once
 		pname = name
-		if 'background' in row.index and not np.isnan(row['background']) and '_' in name:
+		ismulti = any([suffix in name[-2:] for suffix in subburst_suffixes])
+		if 'background' in row.index and not np.isnan(row['background']) and ismulti:
 			subname = name
 			name, suffix = '_'.join(name.split('_')[:-1]), name.split('_')[-1]
 			regcols = [col for col in row.index if 'reg' in col]
@@ -518,8 +523,8 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		# apply masks
 		if masks is not None and masks != []:
 			mask = [masks[k] for k in masks.keys() if name in k]
-			if mask == []: mask = [[]]
-			mask = mask[0]
+			if mask != []:
+				mask = mask[0]['chans']
 			for m in mask:
 				if m < len(wfall):
 					wfall[m] = 0

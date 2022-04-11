@@ -1,7 +1,7 @@
 import dpg
 import frbrepeaters
 import driftrate, driftlaw
-import os, glob, itertools
+import os, glob, itertools, io
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -36,6 +36,22 @@ def getscale(m, M=-1): # used for dynamically rounding numbers for display
 	while c < 1:
 		c *= 10; ret += 1
 	return ret
+
+def compressArr(arr):
+	""" adapted from https://www.geeksforgeeks.org/compress-the-array-into-ranges/ """
+	i, j, n = 0, 0, len(arr)
+	arr.sort()
+	while i < n:
+		j = i
+		while (j + 1 < n) and (arr[j + 1] == arr[j] + 1):
+			j += 1
+
+		if i == j:
+			print(arr[i], end=" ")
+			i += 1
+		else:
+			print(arr[i], "-", arr[j], end=" ")
+			i = j + 1
 
 def applyMasks(wfall):
 	for mask in gdata['masks'][gdata['currfile']]['chans']:
@@ -615,22 +631,30 @@ def getMeasurementInfo(wfall_cr):
 
 	return cols, row
 
+def progress_cb(val, data):
+	dpg.set_value('SlopeStatus', val)
+	overlay = dpg.get_item_configuration("SlopeStatus")['overlay'].split(' (')[0]
+	dpg.configure_item('SlopeStatus', overlay=f"{overlay} ({data})")
+
 def slope_cb(sender, data):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 
 	if data is not None:
-		dpg.set_value('SlopeStatus', 'Status: Doing second pass...')
+		dpg.configure_item('SlopeStatus', overlay='Status: Doing second pass...')
 		p0 = data['p0']
 		trialDMs = data['badfitDMs']
 	else:
-		dpg.set_value('SlopeStatus', 'Status: Calculating...')
+		dpg.configure_item('SlopeStatus', overlay='Status: Calculating...')
 		p0 = []
 		trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
 		if not dpg.get_value('RepeatBox') and gdata['resultsdf'] is not None:
 			trialDMs = list(set(gdata['resultsdf'].loc[burstname]['DM']) ^ set(trialDMs))
 			# remove DMs that are in gdata['resultsdf'] from trialDMs
 
-	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt, lowest_freq, p0)
+	progress = io.StringIO()
+	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt,
+												lowest_freq, p0,
+												tqdmout=None, progress_cb=progress_cb)
 
 	if gdata['multiburst']['enabled']:
 		subbursts, corrsigma = getSubbursts(getcorrsigma=True)
@@ -677,7 +701,7 @@ def slope_cb(sender, data):
 	burstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 	gdata['burstdf'] = burstdf
 
-	dpg.set_value('SlopeStatus', 'Status: Done.')
+	dpg.configure_item('SlopeStatus', overlay='Status: Done.')
 	dpg.set_value('NumMeasurementsText', "# of Measurements for this burst: {}".format(len(burstdf)))
 	dpg.set_value('TotalNumMeasurementsText', "Total # of Measurements: {}".format(len(gdata['resultsdf'])))
 	dpg.configure_item('PrevDM', enabled=True)
@@ -1247,7 +1271,10 @@ def frbgui(filefilter=gdata['globfilter'],
 		with dpg.collapsing_header('SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
 			dpg.add_button("Measure Slope over DM Range", callback=slope_cb)
 			dpg.add_same_line()
-			dpg.add_text("SlopeStatus", default_value="Status: (click 'Measure Slope' to calculate)")
+			dpg.add_progress_bar("SlopeStatus", default_value=0,
+				overlay="Status: Click to calculate",
+				width=300
+			)
 			dpg.add_checkbox('RepeatBox', label='Repeat measurements',
 				default_value=True, enabled=True
 			)

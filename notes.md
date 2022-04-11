@@ -872,3 +872,14 @@ It seems to me hard to say visually but would like to hear why. I think 560 make
 
 ## apr 6
 * make dm save a little cleaner. write to disk and trigger reload when committing to a dm
+
+## apr 7
+* fitting li bursts
+	* what can be learned from the amplitude of the fits?
+
+## apr 10-11
+* tried making a progress bar by intercepting tqdms output but theres some weird blocking behaviour when reading the file
+	* maybe close between reads? or use a with block?
+	* or pass a cb that updates a dearpygui progress bar instead of using tqdms progress bar
+* made pdf of li results
+* added dearpygui progress bar
