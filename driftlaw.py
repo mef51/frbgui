@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as PathEffects
 import scipy.odr
 import itertools, re
 
@@ -185,6 +186,7 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 	""" Like `sloperanges` but only for DMs where all the bursts in a sample have valid measurements """
 	dms = fitdf.loc[fitdf.numbursts == fitdf.numbursts.max()].index
 	mindm, maxdm = min(dms), max(dms)
+	print(f">> DM range after maximizing bursts: {mindm} - {maxdm} pc/cm3")
 	source = source.reset_index().set_index('DM').loc[dms].reset_index().set_index('name')
 	# source_lim = source.reset_index().set_index('DM').loc[dms].reset_index().set_index('name')
 
@@ -200,6 +202,8 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 
 		source.loc[burst, 'lim_slope_nu_max'] = dmax
 		source.loc[burst, 'lim_slope_nu_min'] = dmin
+		source.loc[burst, 'lim_slope_max'] = dmax*burstdf['center_f']
+		source.loc[burst, 'lim_slope_min'] = dmin*burstdf['center_f']
 		source.loc[burst, 'lim_tw_max']    = tmax
 		source.loc[burst, 'lim_tw_min']    = tmin
 
@@ -374,13 +378,18 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 	if not showDMtraces: plt.close('all')
 	return bakeddata, fitdata, sources, extradata
 
-def listDMFitResults(fitdata):
+def getOptimalDMs(fitdata, log=False):
+	optimalDMs = []
 	for name in fitdata.name.unique():
-		df = fitdata.loc[(fitdata.name == name)]# & (fitdata.numbursts > 1.0)]
-		df = df.set_index('DM')
-		display(df)
-		print('minimal red_chisq:')
-		display(df[df.red_chisq == df.red_chisq.min()])
+		df = fitdata.loc[(fitdata.name == name)].set_index('DM')
+		limfitdf = df.loc[df.numbursts == df.numbursts.max()]
+		dm = limfitdf[limfitdf.red_chisq == limfitdf.red_chisq.min()].index[0]
+		optimalDMs.append(float(dm))
+		if log:
+			display(df)
+			print('minimal red_chisq:')
+			display(limfitdf[limfitdf.red_chisq == limfitdf.red_chisq.min()])
+	return optimalDMs
 
 def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
 						markers=['o', 'p', 'X', 'd', 's'], hidefit=[], hidefitlabel=False,
@@ -408,11 +417,12 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	if type(fitlines) == list:
 		fitlines = itertools.cycle(fitlines)
 
+	edgecolor = 'k'
 	ax = frames[0].plot.scatter(x='tau_w_ms', y=yaxis,
 			xerr=errorfunc(frames[0])[0],
 			yerr=errorfunc(frames[0])[1],
 			figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize,
-			logy=logscale, logx=logscale, marker=next(markers), edgecolors='k',
+			logy=logscale, logx=logscale, marker=next(markers), edgecolors=edgecolor,
 			label=labels[0])
 
 	for frame, lbl in zip(frames[1:], labels[1:]):
@@ -420,7 +430,7 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 			xerr=errorfunc(frame)[0],
 			yerr=errorfunc(frame)[1],
 			figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize,
-			logy=logscale, logx=logscale, marker=next(markers), edgecolors='k',
+			logy=logscale, logx=logscale, marker=next(markers), edgecolors=edgecolor,
 			label=lbl)
 
 	if type(annotatei) == int:
@@ -430,7 +440,9 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 			for k, v in frames[ai].iterrows():
 				if v[yaxis] > 0 or not logscale:
 					ax.annotate(k, (v['tau_w_ms'], v[yaxis]), xytext=(-3,5),
-						textcoords='offset points', weight='bold', size=annotsize)
+						textcoords='offset points', weight='bold', rotation='horizontal',
+						path_effects=[PathEffects.withStroke(linewidth=3, foreground='w')],
+						size=annotsize)
 
 	alldata = pd.concat([f for f in frames])
 	if not fitextents:
@@ -454,7 +466,9 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		# parameter error
 		ex = frame['tau_w_error']*np.sqrt(frame['red_chisq'])
 		ey = frame['slope error (mhz/ms)']/frame['center_f']*np.sqrt(frame['red_chisq'])
-		data_err = np.sqrt(ex**2 + ey**2)
+		# data_err = np.sqrt(ex**2 + ey**2)
+		# data_err = np.sqrt(ey**2 + (frame['slope_over_nuobs']*ex/frame['tau_w_ms'])**2)
+		data_err = np.sqrt(ey**2 + ((param/frame['tau_w_ms'])*ex/frame['tau_w_ms'])**2)
 		residuals = frame['slope_over_nuobs'] - param/frame['tau_w_ms']
 		chisq = np.sum((residuals / data_err) ** 2)
 		red_chisq = chisq / (len(frame) - 1)
