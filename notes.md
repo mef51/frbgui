@@ -883,3 +883,73 @@ It seems to me hard to say visually but would like to hear why. I think 560 make
 	* or pass a cb that updates a dearpygui progress bar instead of using tqdms progress bar
 * made pdf of li results
 * added dearpygui progress bar
+
+## apr 12
+* wip intro and figures
+* figures need fits
+
+## apr 18
+* redid michilli
+
+## apr 19 - apr 20
+iloveu
+iloveutoo<333
+* Li peak and long duration sample looks good, pdf is just missing masks
+* Li  waittimes:
+	* exclude
+		* M01-0055 drift rate
+		* M01-0095 drift rate
+		* M01-0163 drift rate
+		* M01-0264 drift rate
+		* M01-0388 drift rate
+		* M01-0415 drift rate
+		* M01-0487 drift rate
+		* M01-0576 drift rate
+		* M01-0634 drift rate
+	* redo
+		* M01-0415_b width of fit oscillates >> its ok, just a slightly larger uncertainty
+		* M01-0630 >> looks fine to me
+		* M01-0153 >> also looks fine, im not sure why i wrote it down
+	* cutoff
+		* M01_0826
+* Michilli
+	* exclude:
+		* M009, M010 drift rate
+		* M013 drift rate
+* Aggarwal
+	* exclude:
+		* B093 drift rate
+		* B109 drift rate
+		* B121 drift rate
+		* B016 >> exclude low snr
+		* B023 >> exclude cutoff
+		* B076 >> low snr
+		* B091 >> low snr
+	* redo:
+		* B046 >> done
+		* B093_a >> done
+		* B112 >> done
+	* cutoff:
+		* B079
+		* B082
+		* B133
+* Oostrum
+	* exclude:
+		* R1_B10
+* Gajjar
+	* exclude:
+		* 11A drift rate
+		* 12A drift rate
+		* 11B >> low snr
+		* 11G >> low snr
+	* redo
+		* 11I >> done
+
+## apr 21
+* all exclusions (low snr, bad fit, or cutoff in the band)
+	Michilli: M009, M010, M013
+	Oostrum: R1_B08, R1_B09, R1_B10, R1_B12
+	Aggarwal: B023, B016, B028, B056, B109, B076, B079, B082, B133, B093, B091, B121, B128
+	Gajjar: 11A, 11B, 12A, 11G
+	Li: M01_0576, M01_1180, M01_0055, M01_0095, M01_0163, M01_0264, M01_0388, M01_0415, M01_0487, M01_0576, M01_0634
+* The wild outlier is 0576_b, maybe a splitting issue
