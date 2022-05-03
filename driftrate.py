@@ -475,7 +475,7 @@ def readRegions(resultsdf):
 			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
 	return regionsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4):
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -579,11 +579,19 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		currentplot = next(ploti)
 		plt.subplot(nrows, ncols, currentplot)
 		plt.imshow(corr, origin='lower', interpolation='none', aspect=aspect, cmap='gray', extent=corrextents)
-		plt.clim(0, np.max(corr)/20)
+		plt.clim(0, np.max(corr)/clip)
 		plt.title(f'Corr {bname}: DM = {round(row["DM"], 2)}')
 		plt.xlabel('time lag (ms)'), plt.ylabel('freq lag (MHz)')
 		if popt[0] > 0:
 			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents)
+			# find and display snr
+			a = round(np.interp(popt[1]-popt[3], [corrextents[0], corrextents[1]], [0, corr.shape[1]]))
+			b = round(np.interp(popt[1]+popt[3], [corrextents[0], corrextents[1]], [0, corr.shape[1]]))
+			c = round(np.interp(popt[2]-popt[4], [corrextents[2], corrextents[3]], [0, corr.shape[0]]))
+			d = round(np.interp(popt[2]+popt[4], [corrextents[2], corrextents[3]], [0, corr.shape[0]]))
+			snr = abs(corr[c:d, a:b].sum() / corr[0:(d-c), 0:(b-a)].sum())
+			plt.text(corrextents[0]*0.95, corrextents[2]*0.95, f"snr: {snr:.1f}", color='w')
+
 			# plot line of corresponding slope
 			xo, yo = row['xo'], row['yo']
 			slope = row['slope (mhz/ms)']
