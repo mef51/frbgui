@@ -333,8 +333,8 @@ def plotdata_cb(_, data):
 	if ('resultidx' not in data) or (subname == burstname):
 		gdata['displayedBurst'] = burstname
 		wfall = gdata['wfall'].copy()
-		wfall_dd = driftrate.dedisperse(wfall, ddm, lowest_freq, df, dt)
-		wfall_dd_cr = driftrate.cropwfall(wfall_dd, twidth=dpg.get_value('twidth'))
+		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
+		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
 	elif ('resultidx' in data) and (subname != burstname):
 		gdata['displayedBurst'] = subname
 		subbursts = getSubbursts()
@@ -646,7 +646,7 @@ def slope_cb(sender, data):
 	else:
 		dpg.configure_item('SlopeStatus', overlay='Status: Calculating...')
 		p0 = []
-		trialDMs = np.unique(np.append(gdata['trialDMs'], burstDM))
+		trialDMs = np.unique(np.round(np.append(gdata['trialDMs'], burstDM), decimals=5))
 		if not dpg.get_value('RepeatBox') and gdata['resultsdf'] is not None:
 			trialDMs = list(set(gdata['resultsdf'].loc[burstname]['DM']) ^ set(trialDMs))
 			# remove DMs that are in gdata['resultsdf'] from trialDMs

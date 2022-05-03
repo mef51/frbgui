@@ -953,3 +953,63 @@ iloveutoo<333
 	Gajjar: 11A, 11B, 12A, 11G
 	Li: M01_0576, M01_1180, M01_0055, M01_0095, M01_0163, M01_0264, M01_0388, M01_0415, M01_0487, M01_0576, M01_0634
 * The wild outlier is 0576_b, maybe a splitting issue
+
+## apr 22
+* cite and citep are good. citealt just takes the parantheses off the year
+
+## apr 26
+Martin's notes:
+>> Michilli: M006, M007 and M015 (M015 doesn’t look good to me).
+
+Theyre fine, M006 is weird cuz it has a short bright peak and a long dim tail
+
+>> Oostrum:
+>> very weak: R1_B02, R1_B06, R1_B16, R1_B21, R1_B25, R1_B27, R1_B28
+>> weak: R1_B24, R1_B28
+>> bad fit: R1_B14
+
+Redo with higher snr or do the spatial averaging thing to compute an snr
+
+>> Gajjar: all good!
+>> Aggarwal:
+>> weak: B047
+>> bad fit: B059, B062, B093_b, B106
+>> wrap around: B046
+>> should work: B076
+
+The waterfall for B046 looks good in GUI but looks wrapped around in the PDF, and the fit looks better on the PDF.. This suggest that the waterfall displayed is not the one that gets fit!
+
+>> Li:
+>> strange…: M01_0111
+>> Can’t the waterfalls be cleaned a little more?
+>> Li-waiting times:
+>> two sub-bursts: M01_0103, M01_0415_b, M01_0576_b, M01_0630(?)
+>> bad fit: M01_0630, M01_0826
+>> M01_0163_a is hard to see
+>> What’s wrong with M01_1180? It should work…
+
+* Outliers from Figure 1:
+	* R1_B14 >> bad fit
+	* B109_a >> fat fit
+	* B093_b >> fat fit
+	* R1_B26 >> maybe fat fit
+	* 0576_b >> hard to split
+	* 0826   >> cutoff or fat fit
+
+* Display bug:
+	slope path:
+		subsample
+		crop
+		dedisperse
+	plotResults path:
+		subsample
+		crop
+		dedisperse
+	plotdata path:
+		subsample
+		dedisperse
+		crop
+
+## May 2-3
+* add autocorr snr to `plotResults` pdf
+	* turn up clipping to make ellipses obvious
