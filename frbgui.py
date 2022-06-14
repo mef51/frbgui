@@ -349,7 +349,7 @@ def plotdata_cb(_, data):
 
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
-	dpg.set_value('twidth_ms', 2*dpg.get_value('twidth')*dt)
+	dpg.set_value('twidth_ms', wfall_dd_cr.shape[1]*dt)
 	# print(extents, df, dt, lowest_freq)
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
@@ -404,6 +404,8 @@ def plotdata_cb(_, data):
 
 def twidth_cb(_, data):
 	wfall_cr = getCurrentBurst()[4]
+	if round(wfall_cr.shape[1]/2) != dpg.get_value('twidth'):
+		raise f"{wfall_cr.shape = } {twidth = }"
 	for regid in range(1, gdata['multiburst']['numregions']):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			maxval = wfall_cr.shape[1]*gdata['burstmeta']['tres']

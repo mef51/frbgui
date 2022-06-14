@@ -957,11 +957,11 @@ iloveutoo<333
 ## apr 22
 * cite and citep are good. citealt just takes the parantheses off the year
 
-## apr 26
+## apr 26 - may 3
 Martin's notes:
 >> Michilli: M006, M007 and M015 (M015 doesn’t look good to me).
 
-Theyre fine, M006 is weird cuz it has a short bright peak and a long dim tail
+theyre fine, M006 is weird cuz it has a short bright peak and a long dim tail
 
 >> Oostrum:
 >> very weak: R1_B02, R1_B06, R1_B16, R1_B21, R1_B25, R1_B27, R1_B28
@@ -977,16 +977,38 @@ Redo with higher snr or do the spatial averaging thing to compute an snr
 >> wrap around: B046
 >> should work: B076
 
-The waterfall for B046 looks good in GUI but looks wrapped around in the PDF, and the fit looks better on the PDF.. This suggest that the waterfall displayed is not the one that gets fit!
+The waterfall for B046 looks good in GUI but looks wrapped around in the PDF, and the fit looks better on the PDF.. This suggest that the waterfall displayed is not the one that gets fit! >> fixed now
+
+B047: Its fine, the corrs that don't fit are all positive sloped (i checked the spreadsheet). no need to redo, maybe exclude
+B059: wrapping, maybe exclude its too round
+B062: bad, dont know how to improve the fit, i think its ok, theres a bright core but the measurement seems to line up with the burst
+B093_b: wide, ellipse looks fine in gui, check in pdf
+B106: wide, ellipse looks fine in gui, check in pdf
+B076: tried several times, it doesnt
 
 >> Li:
 >> strange…: M01_0111
 >> Can’t the waterfalls be cleaned a little more?
+
+Cleaned the pdf with a subtract bg. M01_0111 looks good after cleanup
+
 >> Li-waiting times:
 >> two sub-bursts: M01_0103, M01_0415_b, M01_0576_b, M01_0630(?)
+
+M01_0103: Unsplittable
+M01_0415_b: lets try, it worked great
+M01_0576_b: very tight maybe worth a shot >> worked out well
+M01_0630(?): maybe >> split great!
+
 >> bad fit: M01_0630, M01_0826
+
+M01_0826: Same display bug as B093_b and B106
+
 >> M01_0163_a is hard to see
 >> What’s wrong with M01_1180? It should work…
+
+M01_0163_a: zooming in helps
+M01_1180: it does work, maybe an old version? also the helpers are missing
 
 * Outliers from Figure 1:
 	* R1_B14 >> bad fit
@@ -1010,6 +1032,78 @@ The waterfall for B046 looks good in GUI but looks wrapped around in the PDF, an
 		dedisperse
 		crop
 
-## May 2-3
+## may 2-3
 * add autocorr snr to `plotResults` pdf
 	* turn up clipping to make ellipses obvious
+* checking measurements
+* todo: continue checking li bursts
+
+## may 4
+* snr calc:
+	* for multi bursts, will always be off because we zero pad. but its weird cuz sometimes its 0 and sometimes its huge
+	* for M01_0103 which isnt a multi burst it becomes zero suddenly
+
+## may 7
+* fitting with all the data and letting the dm vary across all datasets yields an optimal dm of 560 and a fit of 0.057
+* fitting with the data after the optimal dm has been found for each set yields a fit of 0.11
+
+## may 10
+* i dont remember how i measured the duration in josephy, it may be incorrect
+
+## may 12
+* see slack for josephy burst explanation
+	* the value in josephy is the FWHM of the red gaussian profile, we use the corresponding 1sigma value of that profile
+
+## may 15
+* drift rate v frequency is linear (josephy 2019 figure 6) but slope v frequency is quadratic (our paper and wang et al 2022)
+	* can this potentially differentiate unresolved and resolved bursts?
+
+## may 27
+* analysing drift rates:
+	* B093 has no drift, the two bursts come in at the same frequency
+	* B109 has a positive drift rate and two structures in the autocorrelation
+	* M01-0163 looks like it has two drift rates
+	* M01-0576 positive
+	* M009 michilli too low snr
+
+## may 30
+* wrote email for jahns
+
+## june 1
+
+
+## jun 3
+* pick one dm for drift rates
+
+## jun 6
+* How do others define burst duration?
+	* FWHM (michilli)
+
+## jun 8
+* ~11L is tiny but measurable. almost seems like two bursts but its not in the time series~
+
+## jun 9
+* Gajjar leftover bursts
+	* 11L >> too low snr
+	* 11P >> too low snr
+	* 12B >> drift rate
+
+## jun 10
+* update oostrum :
+	* exclusions
+		* exclude R1_B04, 5, 10, 11, 15, 20.
+		* keep R1_B08, 9, 12
+		* target dm is now 561
+	* R1_B30 new burst
+	* burst width is measured by making a square pulse that hsa the same peak integrated flux density
+	* frequency vs duration?
+
+## jun 13
+* several studies (aggarwal 2021 for eg.) mention a lack of bursts under 1300 mhz, but Li has a few around 1 GHz
+* aggarwal leftover bursts:
+	* many were skipped cuz they seem too low snr but i can measure them
+	* low snr:
+		* B005
+
+## jun 14
+* rewrite `cropwfall` to robustly shift a window of twidth around if pkidx is near the edge of the waterfall

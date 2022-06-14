@@ -159,29 +159,36 @@ def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0):
 
 	return dedispersed
 
-def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0):
-	extents = (0,
-			   dt*wfall.shape[1],
+def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0, lowest_time:float=0.0):
+	extents = (lowest_time,
+			   lowest_time + dt*wfall.shape[1],
 			   lowest_freq,
 			   lowest_freq + df*wfall.shape[0])
 
-	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
+	# corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
+	corrextents = (-(extents[1]-extents[0]), (extents[1]-extents[0]), -(extents[3]-extents[2]), (extents[3]-extents[2]))
 	return extents, corrextents
 
 def cropwfall(wfall, twidth=150, pkidx=None):
 	twidth = round(twidth)
-	if twidth <= 0:
+	if twidth <= 0 or twidth > wfall.shape[1]:
 		twidth = wfall.shape[1]
 	wfall = wfall.copy()
 	ts    = np.nanmean(wfall, axis=0)
 	if not pkidx:
 		pkidx = np.nanargmax(ts)
 
+	# try making a window with pkidx in the middle, and shift if window is too large
+	# window will always be of width twidth
 	ledge, redge = pkidx-twidth, pkidx+twidth
 	if ledge < 0:
+		if redge + abs(ledge) <= wfall.shape[1]:
+			redge += abs(ledge)
 		ledge = 0
-	if redge == 0: # slicing w/ None takes the whole array
-		redge = None
+	if redge > wfall.shape[1]:
+		if ledge - (redge - wfall.shape[1]) >= 0:
+			ledge -= redge
+		redge = wfall.shape[1]
 
 	return wfall[..., ledge:redge]
 
@@ -232,7 +239,7 @@ def autocorr2d(data):
 def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
 				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
 				 corrsigma=(0,50),
-				 verbose=True):
+				 verbose=True, lowest_time=0):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
 	find the drift and make a plot of the burst and fit.
@@ -241,7 +248,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 
 	corr = autocorr2d(burstwindow)
 	_, corrextents = getExtents(burstwindow,
-									  df=fres_MHz, dt=tres_ms, lowest_freq=lowest_freq)
+									  df=fres_MHz, dt=tres_ms, lowest_freq=lowest_freq,
+									  lowest_time=lowest_time)
 	# print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
 	# print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
 
@@ -340,7 +348,7 @@ columns = [
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
-				   corrsigma=(0,50), tqdmout=None, progress_cb=None):
+				   corrsigma=(0,50), tqdmout=None, progress_cb=None, lowest_time=0):
 	results = []
 	prog = 0
 	for trialDM in tqdm(dmrange, file=tqdmout):
@@ -351,7 +359,7 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 
 		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0,
-									corrsigma=corrsigma)
+									corrsigma=corrsigma, lowest_time=lowest_time)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
@@ -475,7 +483,8 @@ def readRegions(resultsdf):
 			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
 	return regionsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20):
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20,
+				snrLines=False):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -484,7 +493,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	resultsdf = pd.read_csv(resultsfile).set_index('name')
 	plt.figure(figsize=figsize)
 	ploti = itertools.count(start=1, step=1)
-	outputfile = f"{resultsfile.split('.')[0].split('/')[-1]}.pdf"
+	outputfile = f"{resultsfile.split('.')[0]}.pdf"
 	print(outputfile)
 
 	try:
@@ -589,8 +598,17 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 			b = round(np.interp(popt[1]+popt[3], [corrextents[0], corrextents[1]], [0, corr.shape[1]]))
 			c = round(np.interp(popt[2]-popt[4], [corrextents[2], corrextents[3]], [0, corr.shape[0]]))
 			d = round(np.interp(popt[2]+popt[4], [corrextents[2], corrextents[3]], [0, corr.shape[0]]))
-			snr = abs(corr[c:d, a:b].sum() / corr[0:(d-c), 0:(b-a)].sum())
-			plt.text(corrextents[0]*0.95, corrextents[2]*0.95, f"snr: {snr:.1f}", color='w')
+			if snrLines:
+				plt.axvline(x=corrextents[0] + 2*popt[3], c='w', ls='--')
+				plt.axhline(y=corrextents[2] + 2*popt[4], c='w', ls='--')
+
+			# snr = abs(corr[c:d, a:b].sum() / corr[0:(d-c), 0:(b-a)].sum())
+			# snr = 2*popt[0]*(1-np.exp(-1/2)) / (corr[0:(d-c), 0:(b-a)].sum() / ((d-c)*(b-a)))
+			snr = abs(2*popt[0]*(1-np.exp(-1/2)) / (corr[0:(d-c), 0:(b-a)].sum() / (4*popt[4]*popt[3])))
+			if snr < 100000:
+				plt.text(corrextents[0]*0.95, corrextents[2]*0.95, f"snr: {snr:.1f}", color='w')
+			else:
+				plt.text(corrextents[0]*0.95, corrextents[2]*0.95, f"snr: > 100000", color='w')
 
 			# plot line of corresponding slope
 			xo, yo = row['xo'], row['yo']
