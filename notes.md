@@ -1107,3 +1107,20 @@ M01_1180: it does work, maybe an old version? also the helpers are missing
 
 ## jun 14
 * rewrite `cropwfall` to robustly shift a window of twidth around if pkidx is near the edge of the waterfall
+
+## jun 15
+* adding pkidx as a user input is a little tricky, will crop the burst manually outside of the gui for now
+
+## jun 16+17
+* dedisperse B007 to 560
+* exclusions:
+	old: ['B016', 'B028', 'B056', 'B109', 'B076', 'B079', 'B082', 'B133', 'B093', 'B091', 'B121', 'B128'],
+	new: ['B005', 'B007', 'B008', 'B020', 'B022', 'B024', 'B029', 'B033?', 'B038?', 'B039', 'B041', 'B045', 'B048', 'B048_a', 'B048_b', 'B051', 'B055',
+		  'B060', 'B060_a', 'B060_b', 'B064', 'B068', 'B069', 'B070', 'B071', 'B077', 'B078', 'B083', 'B086', 'B088_a', 'B088_b', 'B097', 'B099', 'B103', 'B107',
+	  	  'B115?', 'B127', 'B131']
+
+## jun 20
+* center_f for B004 is very off
+
+## jun 21
+* change findCenter to do the weighted average over the square of the frequency spectrum. This ensures the result is an index in the frequency range when the SNR of the burst is low

@@ -10,7 +10,7 @@ from tqdm import tqdm
 def findCenter(burstwindow):
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
 	freqi = np.indices(freqspectrum.shape)[0]
-	return np.nansum(freqi*freqspectrum) / np.nansum(freqspectrum)
+	return np.nansum(freqi*(freqspectrum**2)) / np.nansum(freqspectrum**2)
 
 def structureParameter(wfall, dt, tstart, tend):
 	"""
