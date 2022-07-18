@@ -484,7 +484,7 @@ def readRegions(resultsdf):
 	return regionsobj
 
 def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20,
-				snrLines=False):
+				snrLines=False, show=False):
 	"""
 	Similar to plotStampcard but reads all data from the results csv produced by the gui
 
@@ -576,8 +576,9 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		if popt[0] > 0:
 			# add duration and slope markers to waterfall
 			pkidx = np.nanargmax(np.nanmean(wfall, axis=0))
-			plt.errorbar(pkidx*dt_ms, row['center_f'], xerr=row['tau_w_ms']/2, color='#4b0082',
-					 	 linewidth=2, capthick=2, capsize=5, fmt='none')
+			plt.errorbar(pkidx*dt_ms, row['center_f'],
+				xerr=row['tau_w_ms']/2, yerr=row['bandwidth (mhz)']/2,
+				color='#4b0082', linewidth=2, capthick=2, capsize=5, fmt='none')
 			xo = pkidx*dt_ms
 			x = np.array([xo - row['tau_w_ms'], xo + row['tau_w_ms']])
 			plt.plot(x, row['slope (mhz/ms)']*x + row['center_f'] - row['slope (mhz/ms)']*xo, 'b--', lw=1.5)
@@ -620,7 +621,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		if currentplot == nrows*ncols:
 			# save current page of pdf, start new page, reset counter
 			plt.tight_layout()
-			# plt.show()
+			if show: plt.show()
 			pdf.savefig(plt.gcf())
 			plt.close()
 			plt.figure(figsize=figsize)
@@ -628,6 +629,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 
 	plt.tight_layout()
 	pdf.savefig(plt.gcf())
+	if show: plt.show()
 	pdf.close()
 	plt.close()
 	return True

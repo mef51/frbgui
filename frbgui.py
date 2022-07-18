@@ -101,14 +101,14 @@ def updatedata_cb(sender, data):
 						# dfs = loaded[key]
 						gdata['burstmeta']['bandwidth'] = abs(loaded['bandwidth'])
 						df = gdata['burstmeta']['bandwidth'] / wfall.shape[0]
-						print(df, loaded['bandwidth'], storedshape[1]*1000)
+						# print(df, loaded['bandwidth'], storedshape[1]*1000)
 						gdata['burstmeta']['fres_original'] = df
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
 					elif key == 'dt':
 						dt = loaded['duration'] / storedshape[1]*1000
-						print(dt, loaded['duration'], storedshape[1]*1000)
+						# print(dt, loaded['duration'], storedshape[1]*1000)
 						gdata['burstmeta']['duration'] = loaded['duration']
 						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
@@ -250,8 +250,9 @@ def updatedata_cb(sender, data):
 		disp_duration = gdata['extents'][1] - gdata['extents'][0]
 		twidth = disp_duration/gdata['burstmeta']['tres_original']/2
 		dpg.set_value('twidth', round(twidth * (wfall.shape[1]/gdata['wfall_original'].shape[1])))
+		dpg.configure_item('twidth', max_value=round(wfall.shape[1]/2))
 
-		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
+		# wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 		gdata['burstmeta']['fres'] = gdata['burstmeta']['bandwidth'] / wfall.shape[0]
 		gdata['burstmeta']['tres'] = gdata['burstmeta']['duration']*1000 / wfall.shape[1]
 
@@ -284,8 +285,7 @@ def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
 	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeDataFitmap(popt, corr, extents)
 		if 1 not in fitmap.shape: # subsample ui can result in fitmaps unsuitable for countour plotting
-			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, origin='lower',
-						extent=extents)
+			plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=extents)
 			if slope is not None:
 				print(f"{slope = } {list(popt) = }")
 				xo = popt[1]
@@ -350,6 +350,7 @@ def plotdata_cb(_, data):
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
 	dpg.set_value('twidth_ms', wfall_dd_cr.shape[1]*dt)
+	dpg.set_value('pkidx', int(np.nanargmax(np.nanmean(wfall_cr, axis=0))))
 	# print(extents, df, dt, lowest_freq)
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
@@ -405,12 +406,19 @@ def plotdata_cb(_, data):
 def twidth_cb(_, data):
 	wfall_cr = getCurrentBurst()[4]
 	if round(wfall_cr.shape[1]/2) != dpg.get_value('twidth'):
-		raise f"{wfall_cr.shape = } {twidth = }"
+		print(f"twidth_cb: {wfall_cr.shape = } {dpg.get_value('twidth') = }")
 	for regid in range(1, gdata['multiburst']['numregions']):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			maxval = wfall_cr.shape[1]*gdata['burstmeta']['tres']
 			dpg.configure_item('Region{}'.format(regid), max_value=maxval, speed=maxval*0.005)
 	plotdata_cb(_, data)
+
+def pkidx_cb(_, data):
+	enabled = dpg.get_value('pkidxbool')
+	if dpg.get_value('pkidxbool'):
+		pkidx = dpg.get_value('pkidx')
+		print(pkidx)
+		twidth_cb(_, data)
 
 def subsample_cb(sender, data):
 	if sender == 'ResetSamplingBtn':
@@ -478,7 +486,7 @@ def importmask_cb(sender, data):
 	if filename.split('.')[-1] == 'npy':
 		masks = np.load(filename, allow_pickle=True)[0]
 		if type(masks) == dict:
-			gdata['masks'] = masks
+			gdata['masks'].update(masks)
 			updatedata_cb(sender, {'keepview': True})
 			masktable_cb(sender, None)
 		else:
@@ -602,7 +610,8 @@ def getCurrentBurst():
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
 	wfall = gdata['wfall'].copy()
-	wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
+	# pkidx = dpg.get_value('pkidx') if dpg.get_value('pkidxbool') else None
+	wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'), pkidx=None)
 	burstDM = gdata['burstDM']
 	return burstname, df, dt, lowest_freq, wfall_cr, burstDM
 
@@ -647,7 +656,7 @@ def slope_cb(sender, data):
 		trialDMs = data['badfitDMs']
 	else:
 		dpg.configure_item('SlopeStatus', overlay='Status: Calculating...')
-		p0 = []
+		p0 = [] if not gdata['p0'] else gdata['p0']
 		trialDMs = np.unique(np.round(np.append(gdata['trialDMs'], burstDM), decimals=5))
 		if not dpg.get_value('RepeatBox') and gdata['resultsdf'] is not None:
 			trialDMs = list(set(gdata['resultsdf'].loc[burstname]['DM']) ^ set(trialDMs))
@@ -1196,6 +1205,10 @@ def frbgui(filefilter=gdata['globfilter'],
 				callback=twidth_cb
 			)
 			dpg.add_input_float('twidth_ms', label='Display width (ms)', enabled=False)
+			dpg.add_input_int('pkidx', label='Peak Index', enabled=False, callback=pkidx_cb)
+			dpg.add_same_line()
+			dpg.add_checkbox('pkidxbool', label='Use ?', enabled=False, default_value=False,
+				callback=lambda s, d: dpg.configure_item('pkidx', enabled=dpg.get_value('pkidxbool')))
 
 			dpg.add_text('Dedispersion Range for all Bursts: ')
 			dpg.add_text('DMWarning', default_value='Warning: Range chosen does not include burst DM',
@@ -1422,11 +1435,16 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\aggarwal2021',
 		# datadir='B:\\dev\\frbrepeaters\\data\\oostrum2020\\R1_frb121102',
 		# datadir='B:\\dev\\frbrepeaters\\data\\gajjar2018',
-		datadir='E:\\Li2021\\samp_wait*',
-		# maskfile='aggarwalmasks_sept12.npy',
-		# maskfile='oostrummasks_aug28.npy',
-		# regionfile='burstregions_gajjaroct1.npy',
+		# datadir='B:\\dev\\frbrepeaters\\data\\aish',
+		# datadir='E:\\Li2021\\samp_wait*',
+		# datadir='E:\\Li2021\\samp_peak*',
+		datadir='B:\\dev\\frbrepeaters\\data\\driftrates',
+		# maskfile='aggarwalmasks_Jun17_2022.npy',
+		# maskfile='oostrummasks_may2_2022.npy',
+		# maskfile='li_masks_may3.npy',
+		maskfile='driftratemasks_jul16_22',
 		dmstep=0.5,
-		# dmrange=[555, 575],
-		dmrange=[555, 575]
+		dmrange=[555, 575],
+		# dmrange=[555, 575]
+		# dmrange=[-2,2]
 	)

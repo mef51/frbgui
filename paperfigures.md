@@ -6,8 +6,9 @@
 * slope/nu_obs vs. duration
 * duration vs. frequency
 * Slope vs. frequency
-* tw vs nuobs
 * slope/nu^2 vs nu
-* slope vs nu_obs
-* bandiwdth vs nu
+* bandwidth vs nu
+* bandwidth vs duration
+* bandwidth vs slope
 * drift rate vs tw
+* drift rate vs frequency

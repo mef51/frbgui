@@ -1123,4 +1123,77 @@ M01_1180: it does work, maybe an old version? also the helpers are missing
 * center_f for B004 is very off
 
 ## jun 21
-* change findCenter to do the weighted average over the square of the frequency spectrum. This ensures the result is an index in the frequency range when the SNR of the burst is low
+* changed findCenter to do the weighted average over the square of the frequency spectrum. This ensures the result is an index in the frequency range when the SNR of the burst is low
+
+## jun 22
+* how calculate FWHM from t_w_ms? I tried 2root(2ln(2))sigma with reasonable results, though quite on the large end
+* does definition of burst duration affect the A found? I think so
+
+## jun 23
+* do's and don'ts of chisquared: https://arxiv.org/pdf/1012.3754.pdf
+
+## jun 27
+* RFI info https://thepetabyteproject.github.io/your/0.6.6/ipynb/RFI/
+
+## jun 29
+* im considering renaming the frbrepeaters repo to frbgui, releasing it primarily as the home of the gui, and including the paper code and results as a subdirectory
+	* this is as opposed to making a repo for the gui and a repo for the paper
+* id like to know how to derive the tw equation, and id like to derive a bandwidth equation
+
+## jun 30
+* instead of projecting the sigmax and using theta to get the slope and duration, i want to try
+	* finding the FWHM of the 2d gaussian at frequency lag = 0 and using that as the duration
+	* finding the FWHM of the 2d gaussian at time lag = 0 and using that as the bandwidth
+	* putting a line through the peaks of the gaussian at each frequency and using the slope of that line as the sub-burst slope
+	* i think josephy does something like this
+* the autocorrelation the way we do it is numerical, the formalism doesn't have units that are consistent
+* log(3) meters not log(3 meters): https://en.wikipedia.org/wiki/Transcendental_function#Dimensional_analysis
+* orientational analysis extends dimensional analysis: https://en.wikipedia.org/wiki/Dimensional_analysis#Siano's_extension:_orientational_analysis
+* can the jahns' gaussian be adapted for autocorrelations?
+
+## july 2
+* errors come from the dm range so dont really need them
+
+## july 4
+* numerically checked that autocorrelation of a gaussian widens the width by sqrt(2)
+* maybe sum the autocorrelations like in josephy
+* todo: swap center_f and center_f_new
+
+## july 6
+* swapped for the new center_f, very minor differences
+* if peaklags lacks the precision to yield a slope that isnt infinity maybe just set it to a positive value so it can be excluded
+* Todo: try with the summed autocorrelation
+
+## july 7
+* large duration range when using summed autocorrelations
+* meeting:
+	* parameters are unitless but our choice of coordinates is like labelling axes on a graph (e.g. x/1ms or M/Msolar etc.)
+* switched back to tau_w_ms and wrote analytical calculation for bandwidth
+
+## july 11
+* todo: add bandwidth measurement to figure and make example figure for paper
+* finish methods section
+
+## july 12
+* start results, style figures
+
+## july 13
+* move error bars to the back manually by reading the axis children
+* check with martin about the error on center_f
+* excluded R1_B09. was driving the dm range down and the fit is wide and low snr
+
+## july 15
+* bandwidth vs tw is proportional to tw^(-2/5)
+
+## july 16
+* gajjar dm grid is messed up. sometimes steps of 1 somteimes steps of 0.5
+	* redid to have uniform grid
+
+## july 17
+* checking driftrates
+	* redo 0055, 0095
+	* M01_0264 is a very nice burst
+* duped li rows:
+	* 388, 415, 487, 576, 630, 634
+* combined Li spreadsheets manually because we disagree about the number of pulses per burst
+* no correlations between my properties and the waittime distribution, or the energy distribution. The low energy peak has only two points, but no dramatic changes between the peaks.

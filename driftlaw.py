@@ -46,6 +46,7 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 	if channelSpaceDuration: # hack to force channel space equation for old measurements
 		frame['tau_w_ms'] = frame['tau_w_ms_old']
 
+	frame['bandwidth (mhz)'] = abs(2*np.sqrt(2*np.log(2))*frame['max_sigma']*np.cos(frame['theta']-np.pi/2))
 	## Redshift corrections
 	if 'z' in frame.index:
 		frame['slope_z'] = frame[['slope_over_nuobs', 'z']].apply(lambda row: row['slope_over_nuobs']*(1+row['z']), axis=1)
@@ -151,6 +152,11 @@ def rangeerror_odr(frame):
 	ex, ey = rangeerror(frame)
 	return np.maximum(ex[0][0], ex[0][1]), np.maximum(ey[0][0], ey[0][1])
 
+def limitedDMrangeerror_odr(frame):
+	""" The range errors are asymmetric. Take the largest error """
+	ex, ey = limitedDMrangeerror(frame)
+	return np.maximum(ex[0][0], ex[0][1]), np.maximum(ey[0][0], ey[0][1])
+
 def fitodr(frame, beta0=[1000], errorfunc=log_error, log=True):
 	fit_model = scipy.odr.Model(reciprocal_odr)
 	fit_model_log = scipy.odr.Model(reciprocal_odr_log)
@@ -191,14 +197,17 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 	# source_lim = source.reset_index().set_index('DM').loc[dms].reset_index().set_index('name')
 
 	yaxis = 'slope_over_nuobs'
-	xaxis ='tau_w_ms'
+	xaxis = 'tau_w_ms'
+	baxis = 'bandwidth (mhz)'
 	for burst in source.index.unique():
 		burstdf = source.loc[burst] # s/source/source_lim
 		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
 		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
+		ebandwidth   = np.sqrt(burstdf['red_chisq'])*burstdf['max_sigma_error']
 
 		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
+		bmax, bmin = np.max(burstdf[baxis] + ebandwidth) , np.min(burstdf[baxis] - ebandwidth)
 
 		source.loc[burst, 'lim_slope_nu_max'] = dmax
 		source.loc[burst, 'lim_slope_nu_min'] = dmin
@@ -206,6 +215,8 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 		source.loc[burst, 'lim_slope_min'] = dmin*burstdf['center_f']
 		source.loc[burst, 'lim_tw_max']    = tmax
 		source.loc[burst, 'lim_tw_min']    = tmin
+		source.loc[burst, 'lim_band_max']  = bmax
+		source.loc[burst, 'lim_band_min']  = bmin
 
 	return source
 
@@ -338,7 +349,7 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 			popt, pcov = scipy.optimize.curve_fit(lambda x, c: c, nus, df['slope_abs_nuobssq'])
 			extradata['Bconstants'].append((popt[0], np.sqrt(pcov[0])))
 
-		markcolors = []
+		markcolors = [] if len(fitframes) > 0 else ['r']
 		for f in fitframes:
 			markcolors.append(f['color'].iloc[0])
 		markcolors = itertools.cycle(markcolors)
@@ -392,11 +403,12 @@ def getOptimalDMs(fitdata, log=False):
 	return optimalDMs
 
 def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
-						markers=['o', 'p', 'X', 'd', 's'], hidefit=[], hidefitlabel=False,
+						markers=['o', '^', 'v', 'd', 'p'], hidefit=[], hidefitlabel=False,
 						fitlines=['r-', 'b--', 'g-.'], fitextents=None,
-						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False):
-	""" wip """
-	plt.rcParams["errorbar.capsize"] = 4
+						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False, ax=None):
+	if len(frames) == 0:
+		return None, []
+	plt.rcParams["errorbar.capsize"] = 0
 	plt.rcParams["font.family"] = "serif"
 
 	markersize = 125#100
@@ -418,7 +430,7 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		fitlines = itertools.cycle(fitlines)
 
 	edgecolor = 'k'
-	ax = frames[0].plot.scatter(x='tau_w_ms', y=yaxis,
+	ax = frames[0].plot.scatter(ax=ax, x='tau_w_ms', y=yaxis,
 			xerr=errorfunc(frames[0])[0],
 			yerr=errorfunc(frames[0])[1],
 			figsize=figsize, s=markersize, c='color', colorbar=False, fontsize=fontsize,
@@ -439,10 +451,15 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		if ai < len(frames):
 			for k, v in frames[ai].iterrows():
 				if v[yaxis] > 0 or not logscale:
-					ax.annotate(k, (v['tau_w_ms'], v[yaxis]), xytext=(-3,5),
+					text = k if len(k) < 8 else '...'+k[-8:]
+					ax.annotate(text, (v['tau_w_ms'], v[yaxis]), xytext=(-3,5),
 						textcoords='offset points', weight='bold', rotation='horizontal',
 						path_effects=[PathEffects.withStroke(linewidth=3, foreground='w')],
 						size=annotsize)
+	# move error bars to the back
+	for child in ax.get_children():
+		if child.zorder == 2:
+			child.set_zorder(-1)
 
 	alldata = pd.concat([f for f in frames])
 	if not fitextents:
@@ -481,7 +498,7 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 		if fi not in hidefit:
 			color = re.match(r"\w+", line)[0]
 			lstyle = line.split(color)[-1]
-			plt.plot(x, param/x, color=color, ls=lstyle, label=lstr)
+			plt.plot(x, param/x, color=color, ls=lstyle, label=lstr, zorder=-2)
 
 	if title:
 		ax.set_title(title, size=fontsize)
