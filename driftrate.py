@@ -10,7 +10,9 @@ from tqdm import tqdm
 def findCenter(burstwindow):
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
 	freqi = np.indices(freqspectrum.shape)[0]
-	return np.nansum(freqi*(freqspectrum**2)) / np.nansum(freqspectrum**2)
+	meanfreqi = np.nansum(freqi*(freqspectrum**2)) / np.nansum(freqspectrum**2)
+	errorsum = (np.nansum((freqi - meanfreqi)*(freqspectrum)) / np.nansum(freqspectrum**2))**2
+	return meanfreqi, errorsum
 
 def structureParameter(wfall, dt, tstart, tend):
 	"""
@@ -300,7 +302,11 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	slope_error = (theta_err * (1/np.cos(theta))**2)
 
 	# find center frequency
-	center_f = findCenter(burstwindow)*fres_MHz + lowest_freq
+	center_i, errorsumi = findCenter(burstwindow)
+	center_f = center_i*fres_MHz + lowest_freq
+	errorsum = errorsumi*fres_MHz
+	wfallsigma = np.std( burstwindow[:, 0:burstwindow.shape[1]//20] ) # use the first 5% of channels
+	center_f_err = np.sqrt(fres_MHz**2/12 + 4*wfallsigma**2*errorsum**2)
 
 	#### Plot
 	if plot:
@@ -345,6 +351,7 @@ columns = [
 	'angle_error',
 	'f_res (mhz)',
 	'time_res (s)'
+	# 'pkidx'
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
