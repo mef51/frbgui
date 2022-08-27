@@ -19,7 +19,7 @@
 *.mp4
 *.sfk
 *.veg
-data/*
+SurveyFRB20121102A/data/*
 
 .ipynb_checkpoints/
 *#
@@ -31,9 +31,17 @@ __pycache__
 *.egg-info*
 *.sublime-workspace
 
-data/*/*.txt
-dfdtresults/
+SurveyFRB20121102A/data/*/*.txt
+SurveyFRB20121102A/dfdtresults/
 imgui.ini
 backups/
-results/old/
-tests/
+SurveyFRB20121102A/results/old/
+SurveyFRB20121102A/results/11A/
+SurveyFRB20121102A/results/backup/
+SurveyFRB20121102A/results/othersources/
+SurveyFRB20121102A/results/simulated/
+SurveyFRB20121102A/tests/
+SurveyFRB20121102A/sampledat/
+SurveyFRB20121102A/datasources/
+SurveyFRB20121102A/talk/
+SurveyFRB20121102A/18wfall_processing/

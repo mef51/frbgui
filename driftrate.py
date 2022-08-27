@@ -11,7 +11,7 @@ def findCenter(burstwindow):
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
 	freqi = np.indices(freqspectrum.shape)[0]
 	meanfreqi = np.nansum(freqi*(freqspectrum**2)) / np.nansum(freqspectrum**2)
-	errorsum = (np.nansum((freqi - meanfreqi)*(freqspectrum)) / np.nansum(freqspectrum**2))**2
+	errorsum = (np.nansum((freqi - meanfreqi)*(freqspectrum)) / np.nansum(freqspectrum**2))
 	return meanfreqi, errorsum
 
 def structureParameter(wfall, dt, tstart, tend):

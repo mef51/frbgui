@@ -1197,3 +1197,9 @@ M01_1180: it does work, maybe an old version? also the helpers are missing
 	* 388, 415, 487, 576, 630, 634
 * combined Li spreadsheets manually because we disagree about the number of pulses per burst
 * no correlations between my properties and the waittime distribution, or the energy distribution. The low energy peak has only two points, but no dramatic changes between the peaks.
+
+## july 21
+* reduced chisq from odr is `odrfit.res_var`: https://stackoverflow.com/questions/21395328/how-to-estimate-goodness-of-fit-using-scipy-odr/21406281#21406281
+
+## august 5
+* spectral running has an relationship with bandwidth (pleunis thesis figure 6.17 )and duration (figure 4 of pleunis2021a)
