@@ -19,6 +19,7 @@
 *.mp4
 *.sfk
 *.veg
+*.zip
 SurveyFRB20121102A/data/*
 
 .ipynb_checkpoints/
