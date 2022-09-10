@@ -25,7 +25,11 @@ Install Frbgui with
 
 ## Usage
 
-You can run the gui from the command line with the command `frbgui` and it will start in your current working directory
+Run from the command-line with the following command to start in your current working directory:
+
+```bash
+frbgui
+```
 
 In a python script, you can invoke the gui in the following way:
 
