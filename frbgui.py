@@ -1160,7 +1160,7 @@ def savedm_cb(sender, data):
 			dpg.configure_item('SaveDMButton', enabled=False)
 
 def frbgui(filefilter=gdata['globfilter'],
-		datadir=None,
+		datadir='',
 		maskfile=None,
 		regionfile=None,
 		dmrange=None,
@@ -1169,6 +1169,8 @@ def frbgui(filefilter=gdata['globfilter'],
 		winwidth=1700,
 		winheight=850,
 	):
+	if dpg.is_dearpygui_running:
+		dpg.stop_dearpygui()
 	gdata['datadir'] = datadir
 	with dpg.window('FRB Analysis', width=560, height=745, x_pos=10, y_pos=30):
 		with dpg.collapsing_header("1. Data", default_open=True):
@@ -1414,15 +1416,16 @@ def frbgui(filefilter=gdata['globfilter'],
 	# Load defaults
 	dpg.set_value('Filter', filefilter)
 	directory_cb('user', [datadir])
-	burstselect_cb('burstselect', None)
-	importmask_cb('user', maskfile)
-	burstselect_cb('burstselect', None) # silly trick to load regions on start
+	if len(gdata['files']) != 0:
+		burstselect_cb('burstselect', None)
+		importmask_cb('user', maskfile)
+		burstselect_cb('burstselect', None) # silly trick to load regions on start
 
-	## dm range defaults
-	dpg.set_value('dmrange', dmrange)
-	dpg.set_value('numtrials', numtrials)
-	dpg.set_value('dmstep', dmstep)
-	dmrange_cb('user', None)
+		## dm range defaults
+		if dmrange: dpg.set_value('dmrange', dmrange)
+		dpg.set_value('numtrials', numtrials)
+		dpg.set_value('dmstep', dmstep)
+		dmrange_cb('user', None)
 
 	# loadresults_cb('user2', ['B:\\dev\\frbrepeaters\\results', 'FRB121102_oostrum_525rows_Aug28.csv'])
 	dpg.set_global_font_scale(1)
@@ -1438,7 +1441,7 @@ if __name__ == '__main__':
 		# datadir='B:\\dev\\frbrepeaters\\data\\aish',
 		# datadir='E:\\Li2021\\samp_wait*',
 		# datadir='E:\\Li2021\\samp_peak*',
-		datadir='B:\\dev\\frbrepeaters\\data\\driftrates',
+		datadir='B:\\dev\\frbgui\\SurveyFRB20121102A\\data\\driftrates',
 		# maskfile='aggarwalmasks_Jun17_2022.npy',
 		# maskfile='oostrummasks_may2_2022.npy',
 		# maskfile='li_masks_may3.npy',
