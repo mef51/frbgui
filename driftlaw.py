@@ -404,7 +404,7 @@ def getOptimalDMs(fitdata, log=False):
 
 def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotatei=0,
 						markers=['o', '^', 'v', 'd', 'p'], hidefit=[], hidefitlabel=False,
-						fitlines=['r-', 'b--', 'g-.'], fitextents=None,
+						fitlines=['r-', 'b--', 'g-.'], fitextents=None, figsize=(17,9),
 						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False, ax=None):
 	if len(frames) == 0:
 		return None, []
@@ -415,9 +415,6 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 	fontsize = 25 #18
 	annotsize = 14
 	filename = 'log_slope_over_nu_obsvsduration' if logscale else 'slope_over_nu_obsvsduration'
-	figsize = (17, 8)
-	figsize = (17, 9)
-	# figsize = (14, 10)
 
 	yaxis = 'slope_over_nuobs'
 	yaxis_lbl = 'Sub-burst Slope $\\,\\left|\\frac{d\\nu_\\mathrm{obs}}{dt_\\mathrm{D}}\\right|(1/\\nu_{\\mathrm{obs}})$ (ms$^{-1}$)'

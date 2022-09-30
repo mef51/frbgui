@@ -56,5 +56,6 @@ burstmetadata = {
     'burstSN'   : # float of signal to noise ratio, optional,
     'tbin'      : # float of time resolution, unused, optional
 }
+
 np.savez('burst.npz', wfall=wfall, **burstmetadata)
 ```
