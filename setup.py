@@ -26,7 +26,7 @@ setuptools.setup(
 		"License :: OSI Approved :: MIT License",
 		"Operating System :: OS Independent",
 		"Development Status :: 3 - Alpha",
-		"Intended Audience :: Science/Research"
+		"Intended Audience :: Science/Research",
 		"Topic :: Scientific/Engineering :: Astronomy"
 	],
 	python_requires='>=3.6',
