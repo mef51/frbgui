@@ -59,3 +59,11 @@ burstmetadata = {
 
 np.savez('burst.npz', wfall=wfall, **burstmetadata)
 ```
+
+## Acknowledgements
+
+If used in an academic study please cite 
+
+"A broad survey of spectro-temporal properties from FRB20121102A", Chamma, Mohammed A. ; Rajabi, Fereshteh ; Kumar, Aishwarya ; Houde, Martin. Oct. 4 2022. Submitted to MNRAS.
+[arxiv:2210.00106](https://arxiv.org/abs/2210.00106), 
+[ADS:2022arXiv221000106C](https://ui.adsabs.harvard.edu/abs/2022arXiv221000106C/abstract)
