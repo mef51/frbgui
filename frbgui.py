@@ -1,5 +1,4 @@
 import dpg
-import frbrepeaters
 import driftrate, driftlaw
 import os, glob, itertools, io
 import matplotlib.pyplot as plt
@@ -824,6 +823,8 @@ def backupresults():
 	df = driftlaw.computeModelDetails(resultsdf)
 	datestr = datetime.now().strftime('%b%d')
 	prefix = 'backup'
+	if not os.path.isdir('backups'):
+		os.makedirs('backups', exist_ok=True)
 	filename = 'backups/{}_results_{}.csv'.format(prefix, datestr)
 	df.to_csv(filename)
 
