@@ -1,4 +1,4 @@
-import dpg
+import dearpygui.demo as dpg # includes dearpygui.core and dearpygui.simple
 import driftrate, driftlaw
 import os, glob, itertools, io
 import matplotlib.pyplot as plt
