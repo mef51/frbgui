@@ -1433,6 +1433,9 @@ def frbgui(filefilter=gdata['globfilter'],
 	dpg.start_dearpygui(primary_window='main') # blocks til closed
 	return gdata
 
+def main(): # windows cli
+	frbgui(datadir=os.getcwd())
+
 if __name__ == '__main__':
 	frbgui(
 		# datadir='B:\\dev\\frbgui\\SurveyFRB20121102A\\data\\simulated',

@@ -23,8 +23,6 @@ Install Frbgui with
 
 ```pip install --user frbgui```
 
-Oct 4 2022: Please note there are some install breaking issues, see [Issues](https://github.com/mef51/frbgui/issues) #10, #11, #12, #13. Cloning the entire repo and running from there is an appropriate workaround.
-
 ## Usage
 
 Run from the command-line with the following command to start in your current working directory:

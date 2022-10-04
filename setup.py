@@ -6,7 +6,7 @@ def readme():
 
 setuptools.setup(
 	name="frbgui",
-	version="0.9",
+	version="0.91",
 	author="Mohammed Chamma",
 	author_email="mchamma@uwo.ca",
 	description="GUI and utilities for processing Fast Radio Burst waterfalls",
@@ -30,5 +30,8 @@ setuptools.setup(
 		"Topic :: Scientific/Engineering :: Astronomy"
 	],
 	python_requires='>=3.6',
-	scripts=['bin/frbgui']
+	scripts=['bin/frbgui'],
+	entry_points={
+		'console_scripts': ['frbgui=frbgui:main']
+	}
 )
