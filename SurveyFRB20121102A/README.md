@@ -1,5 +1,7 @@
 # A broad survey of spectro-temporal properties from FRB20121102A
 
+Please see the sister repository https://github.com/mef51/SurveyFRB20121102A for the most up-to date information.
+
 ## Measurements and Figures
 
 All measurements and plots of the bursts are available in the [`results/`](results/) folder. 
