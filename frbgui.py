@@ -105,13 +105,14 @@ def updatedata_cb(sender, data):
 						gdata['burstmeta']['fres'] = df
 						dpg.set_value('df', df)
 						dpg.configure_item('df', format='%.{}f'.format(getscale(df)+1))
-					elif key == 'dt':
+					elif key == 'duration' or key == 'dt':
 						dt = loaded['duration'] / storedshape[1]*1000
 						# print(dt, loaded['duration'], storedshape[1]*1000)
 						gdata['burstmeta']['duration'] = loaded['duration']
 						gdata['burstmeta']['tres_original'] = dt
 						gdata['burstmeta']['tres'] = dt
 						dpg.set_value('dt', dt)
+						dpg.set_value('duration', loaded['duration'])
 						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+3))
 					else:
 						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
@@ -1411,7 +1412,7 @@ def frbgui(filefilter=gdata['globfilter'],
 
 	# dpg.show_documentation()
 	dpg.set_main_window_size(winwidth, winheight)
-	dpg.set_main_window_title("FRB Repeaters")
+	dpg.set_main_window_title("frbgui")
 	# dpg.start_dearpygui()
 
 	# Load defaults

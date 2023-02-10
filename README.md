@@ -15,7 +15,7 @@ The GUI is extensible and pull requests are welcome.
 
 ## Status
 
-Currently Frbgui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). Frbgui works but is quirky, buggy, and not tested on different platforms. Frbgui will run on any platform but with varying performance.
+Currently Frbgui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). Frbgui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. Frbgui will run on any platform but with varying performance.
 
 ## Installation
 
@@ -43,27 +43,28 @@ At the moment frbgui works best with burst waterfalls that are prepared as pytho
 ```python
 wfall = # 2D numpy array with shape (num freq channels, num time channels)
 burstmetadata = {
-    'dt'        : # array of time axis, unused, optional,
     'dfs'       : # array of frequency channels in MHz,
     'DM'        : # float of dispersion measure (DM),
     'bandwidth' : # float of bandwidth in MHz,
-    'duration'  : # burst duration in seconds
-    'center_f'  : # burst frequency in MHz, unused, optional,
+    'duration'  : # duration of `wfall` in seconds
+    'center_f'  : # burst frequency in MHz, optional,
     'freq_unit' : # string of freqeuncy unit, e.g. 'MHz', optional,
     'time_unit' : # string of time unit, e.g. 'ms', optional,
     'int_unit'  : # string of intensity unit, e.g. 'Jy', optional,
     'telescope' : # string of observing telescope, e.g. 'Arecibo', optional,
     'burstSN'   : # float of signal to noise ratio, optional,
-    'tbin'      : # float of time resolution, unused, optional
+    'tbin'      : # float of time resolution, optional
 }
 
 np.savez('burst.npz', wfall=wfall, **burstmetadata)
 ```
 
+Optional fields are used for display purposes and do not otherwise affect measurements from within `frbgui`.
+
 ## Acknowledgements
 
-If used in an academic study please cite 
+If used in an academic study please cite
 
 "A broad survey of spectro-temporal properties from FRB20121102A", Chamma, Mohammed A. ; Rajabi, Fereshteh ; Kumar, Aishwarya ; Houde, Martin. Oct. 4 2022. Submitted to MNRAS.
-[arxiv:2210.00106](https://arxiv.org/abs/2210.00106), 
+[arxiv:2210.00106](https://arxiv.org/abs/2210.00106),
 [ADS:2022arXiv221000106C](https://ui.adsabs.harvard.edu/abs/2022arXiv221000106C/abstract)
