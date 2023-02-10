@@ -43,10 +43,12 @@ At the moment frbgui works best with burst waterfalls that are prepared as pytho
 ```python
 wfall = # 2D numpy array with shape (num freq channels, num time channels)
 burstmetadata = {
+    ### required fields:
     'dfs'       : # array of frequency channels in MHz,
-    'DM'        : # float of dispersion measure (DM),
-    'bandwidth' : # float of bandwidth in MHz,
-    'duration'  : # duration of `wfall` in seconds
+    'DM'        : # dispersion measure (DM) in pc/cm^3, float
+    'bandwidth' : # bandwidth of `wfall` in MHz, float
+    'duration'  : # duration of `wfall` in seconds, float
+    ### optional fields:
     'center_f'  : # burst frequency in MHz, optional,
     'freq_unit' : # string of freqeuncy unit, e.g. 'MHz', optional,
     'time_unit' : # string of time unit, e.g. 'ms', optional,
