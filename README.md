@@ -1,6 +1,8 @@
 # Frbgui
 
-Frbgui is a graphical user interface for measuring spectro-temporal properties of Fast Radio Bursts from their waterfalls using 2D autocorrelations. It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement.
+Frbgui is a graphical user interface for measuring spectro-temporal properties of Fast Radio Bursts from their waterfalls using 2D autocorrelations. It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement. 
+
+After measurement, Frbgui can be used to review and fix incorrect measurements by supplying initial guessues, producing an output pdf of all measurements and spreadsheets of measured values. Spreadsheets produced in this way can be loaded back into the Frbgui for further work or different sessions of measurements.
 
 Measurements can be performed over a range of DMs and include:
 
