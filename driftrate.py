@@ -320,6 +320,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		theta,
 		red_chisq,
 		center_f,
+		center_f_err,
 		fitmap
 	)
 
@@ -333,6 +334,7 @@ columns = [
 	'name',
 	'DM',
 	'center_f',
+	'center_f_err',
 	'slope (mhz/ms)',
 	'slope error (mhz/ms)',
 	'theta',
@@ -367,8 +369,8 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0,
 									corrsigma=corrsigma, lowest_time=lowest_time)
-		slope, slope_err, popt, perr, theta, red_chisq, center_f, fitmap = measurement
-		datarow = [burstname] + [trialDM, center_f, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
+		slope, slope_err, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap = measurement
+		datarow = [burstname] + [trialDM, center_f, center_f_err, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
 		if progress_cb:
 			progress_cb(prog/len(dmrange), f"{prog}/{len(dmrange)}")
@@ -424,7 +426,7 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 		corr = autocorr2d(view)
 		print(f'shape: {view.shape}, \tshape: {corr.shape}')
 		if obsdata:
-			drift, drift_error, popt, perr, theta, red_chisq, center_f, fitmap = processBurst(view, df, dt, lowest_freq, verbose=False)
+			drift, drift_error, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap = processBurst(view, df, dt, lowest_freq, verbose=False)
 			extents, corrextents = getExtents(view, df=df, dt=dt, lowest_freq=lowest_freq)
 		else:
 			extents, corrextents = None, None

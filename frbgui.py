@@ -322,11 +322,12 @@ def plotdata_cb(_, data):
 	burstname = dpg.get_value('burstname').replace(',', '')
 
 	popt, slope = None, None
+	poptcols = ['amplitude', 'xo', 'yo', 'sigmax', 'sigmay', 'angle']
 	if gdata['resultsdf'] is not None:
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		if not subburstdf.empty:
 			dmframe = subburstdf.loc[burstname].set_index('DM')
-			popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
+			popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][poptcols]
 			slope = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])]['slope (mhz/ms)'].iloc[0]
 
 	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
@@ -342,7 +343,7 @@ def plotdata_cb(_, data):
 		wfall_cr = subburst
 		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
 		dmframe = subburstdf.loc[subname].set_index('DM')
-		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][5:11]
+		popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][poptcols]
 		slope = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])]['slope (mhz/ms)'].iloc[0]
 
 	tseries = np.nanmean(wfall_dd_cr, axis=0)

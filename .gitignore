@@ -21,6 +21,7 @@
 *.veg
 *.zip
 SurveyFRB20121102A/data/*
+*.wav
 
 .ipynb_checkpoints/
 *#

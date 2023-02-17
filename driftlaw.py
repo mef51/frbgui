@@ -47,6 +47,7 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 		frame['tau_w_ms'] = frame['tau_w_ms_old']
 
 	frame['bandwidth (mhz)'] = abs(2*np.sqrt(2*np.log(2))*frame['max_sigma']*np.cos(frame['theta']-np.pi/2))
+	frame['bandwidth error (mhz)'] = abs(2*np.sqrt(2*np.log(2))*np.sqrt((frame['max_sigma_error']*np.cos(frame['theta']-np.pi/2))**2 + (frame['max_sigma']*frame['angle_error']*np.sin(frame['theta']-np.pi/2))**2))
 	## Redshift corrections
 	if 'z' in frame.index:
 		frame['slope_z'] = frame[['slope_over_nuobs', 'z']].apply(lambda row: row['slope_over_nuobs']*(1+row['z']), axis=1)
@@ -203,7 +204,7 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 		burstdf = source.loc[burst] # s/source/source_lim
 		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
 		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
-		ebandwidth   = np.sqrt(burstdf['red_chisq'])*burstdf['max_sigma_error']
+		ebandwidth   = np.sqrt(burstdf['red_chisq'])*burstdf['max_sigma_error'] # ignores angle error, which should be small
 
 		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
