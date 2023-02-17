@@ -9,7 +9,7 @@ Measurements can be performed over a range of DMs and include the burst frequenc
 Features include:
 * Changing the DM of a burst
 * Cropping waterfalls
-* RFI mitigation via background subtraction, SK-SG filter, or manual channel zapping
+* RFI mitigation via background subtraction, SK-SG filter, manual channel zapping, and mask ranges
 * Import and export of noise masks
 * Measurements over user-defined ranges of DMs
 * Waterfall downsampling in frequency and time
