@@ -926,7 +926,7 @@ def updatep0_cb(sender, data):
 	subname, dispdm = gdata['displayedBurst'], gdata['displayedDM']
 	burstname = dpg.get_value('burstname').replace(',', '')
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
-	resultidx = subburstdf[(subburstdf.name == subname) & (subburstdf.DM == dispdm)].index[0]
+	resultidx = subburstdf[(subburstdf.name == subname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
 	if gdata['multiburst']['enabled']:
 		if data is None:
 			data = {}
