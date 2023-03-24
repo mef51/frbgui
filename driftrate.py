@@ -90,7 +90,7 @@ def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf))
 	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
 	x, y = getDataCoords(extents, data.shape)
 	# p0 = moments(data) if p0 == [] else p0 # moments is in channel space, needs to be rewritten for data space
-	p0 = [1,1,1,1,1,1] if p0 == [] else p0
+	p0 = [1,0,0,1,100,0] if p0 == [] else p0
 	sigma = np.zeros(len(data.ravel())) + sigma
 	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
 										  absolute_sigma=True, bounds=bounds)
@@ -240,7 +240,7 @@ def autocorr2d(data):
 
 def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
 				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
-				 corrsigma=(0,50),
+				 corrsigma=None, wfallsigma=None,
 				 verbose=True, lowest_time=0):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
@@ -305,7 +305,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	center_i, errorsumi = findCenter(burstwindow)
 	center_f = center_i*fres_MHz + lowest_freq
 	errorsum = errorsumi*fres_MHz
-	wfallsigma = np.std( burstwindow[:, 0:burstwindow.shape[1]//20] ) # use the first 5% of channels
+	if not wfallsigma:
+		wfallsigma = np.std( burstwindow[:, 0:burstwindow.shape[1]//20] ) # use the first 5% of channels
 	center_f_err = np.sqrt(fres_MHz**2/12 + 4*wfallsigma**2*errorsum**2)
 
 	#### Plot
@@ -357,7 +358,7 @@ columns = [
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
-				   corrsigma=(0,50), tqdmout=None, progress_cb=None, lowest_time=0):
+				   corrsigma=None, wfallsigma=None, tqdmout=None, progress_cb=None, lowest_time=0):
 	results = []
 	prog = 0
 	for trialDM in tqdm(dmrange, file=tqdmout):
@@ -368,7 +369,8 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 
 		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
 		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0,
-									corrsigma=corrsigma, lowest_time=lowest_time)
+									corrsigma=corrsigma, wfallsigma=wfallsigma,
+									lowest_time=lowest_time)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, center_f_err, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
@@ -518,7 +520,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 	for name, row in resultsdf.iterrows():
 		if pname != name: print('plotting', name)  # print once
 		pname = name
-		ismulti = any([suffix in name[-2:] for suffix in subburst_suffixes])
+		ismulti = any([suffix in str(name)[-2:] for suffix in subburst_suffixes])
 		if 'background' in row.index and not np.isnan(row['background']) and ismulti:
 			subname = name
 			name, suffix = '_'.join(name.split('_')[:-1]), name.split('_')[-1]

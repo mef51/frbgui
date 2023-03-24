@@ -104,7 +104,7 @@ Note:
 | name | The name of the burst file measured, potentially suffixed with a letter (e.g., “a”, “b”, “c”) denoting the sub-pulse |
 | DM | The particular trial DM used to perform measurements |
 | center_f | The center frequency of the burst as measured by frbgui |
-| center_f_err | The propagated uncertainty on center_f |
+| center_f_err | The propagated uncertainty on center_f. For sub-pulses, this value will be the same across DMs, as the waterfall noise needed to compute this value will be sampled once from the full waterfall. |
 | slope (mhz/ms) | The sub-burst slope, obtained from the cotangent of the fit angle  |
 | slope error (mhz/ms) | The propagated uncertainty on the slope |
 | theta | The angle of the semi major axis of the fit ellipse measured counter-clockwise from the positive y-axis |

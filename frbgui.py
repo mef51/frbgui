@@ -669,12 +669,12 @@ def slope_cb(sender, data):
 												tqdmout=None, progress_cb=progress_cb)
 
 	if gdata['multiburst']['enabled']:
-		subbursts, corrsigma = getSubbursts(getcorrsigma=True)
+		subbursts, corrsigma, wfallsigma = getSubbursts(getsigmas=True)
 		subresults, subdf = [], pd.DataFrame()
 		for subname, subburst in subbursts.items():
 			print('processing {}'.format(subname))
 			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt,
-												  lowest_freq, corrsigma=corrsigma)
+												  lowest_freq, corrsigma=corrsigma, wfallsigma=wfallsigma)
 			subresults.append(ret)
 			subdf = subdf.append(retdf)
 
@@ -731,15 +731,15 @@ def redodm_cb(sender, data):
 
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 	displayedname = gdata['displayedBurst']
-	corrsigma = None
+	corrsigma, wfallsigma = None, None
 	if gdata['multiburst']['enabled'] and displayedname != burstname:
-		subbursts, corrsigma = getSubbursts(getcorrsigma=True)
+		subbursts, corrsigma, wfallsigma = getSubbursts(getsigmas=True)
 		wfall_cr = subbursts[displayedname]
 
 	print('redoing ', displayedname, gdata['displayedDM'], f'with {df = } {dt =} {lowest_freq = }')
 	result, burstdf = driftrate.processDMRange(
 		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
-		df, dt, lowest_freq, p0=p0, corrsigma=corrsigma
+		df, dt, lowest_freq, p0=p0, corrsigma=corrsigma, wfallsigma=wfallsigma
 	)
 	print(f'{result = }')
 	cols, row = getMeasurementInfo(wfall_cr)
@@ -1068,7 +1068,7 @@ def regionSelector():
 	gdata['multiburst']['numregions'] += 1
 
 subburst_suffixes = driftrate.subburst_suffixes
-def getSubbursts(getcorrsigma=False):
+def getSubbursts(getsigmas=False):
 	if not gdata['multiburst']['enabled']:
 		return []
 
@@ -1103,11 +1103,12 @@ def getSubbursts(getcorrsigma=False):
 		subname = burstname +'_'+ suffix # '_' is used in plotResults to split names
 		subburstsobj[subname] = subburst
 
-	if getcorrsigma:
-		# zero padding bursts ruins the sampling of sigma so we will sample from the full waterfall
+	# zero padding bursts ruins the sampling of sigma so we will sample from the full waterfall
+	if getsigmas:
 		corr = driftrate.autocorr2d(wfall_cr)
 		corrsigma = np.std( corr[:, 0:50] )
-		return subburstsobj, corrsigma
+		wfallsigma = np.std( wfall_cr[:, 0:wfall_cr.shape[1]//20] ) # use the first 5% of channels
+		return subburstsobj, corrsigma, wfallsigma
 	else:
 		return subburstsobj
 
