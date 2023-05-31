@@ -22,6 +22,7 @@
 *.zip
 SurveyFRB20121102A/data/*
 *.wav
+.DS_Store
 
 .ipynb_checkpoints/
 *#
@@ -32,7 +33,9 @@ __pycache__
 *.p.*
 *.egg-info*
 *.sublime-workspace
+dist/
 
+columns.*
 SurveyFRB20121102A/data/*/*.txt
 SurveyFRB20121102A/dfdtresults/
 imgui.ini

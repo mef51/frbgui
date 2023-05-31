@@ -745,7 +745,7 @@ def redodm_cb(sender, data):
 	cols, row = getMeasurementInfo(wfall_cr)
 	burstdf[cols] = row
 	df = gdata['resultsdf']
-	df[(df.index == displayedname) & (df['DM'] == gdata['displayedDM'])] = burstdf
+	df[(df.index == displayedname) & (np.isclose(df['DM'], gdata['displayedDM']))] = burstdf
 
 	gdata['resultsdf'] = df
 	gdata['burstdf'] = gdata['resultsdf'].loc[burstname]
@@ -755,7 +755,7 @@ def redodm_cb(sender, data):
 		subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)]
 		updateResultTable(subburstdf)
 		subburstdf = subburstdf.reset_index()
-		resultidx = subburstdf[(subburstdf.name == displayedname) & (subburstdf.DM == dispdm)].index[0]
+		resultidx = subburstdf[(subburstdf.name == displayedname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
 		if data is None:
 			data = {}
 		data['resultidx'] = resultidx

@@ -156,7 +156,8 @@ def rangeerror_odr(frame):
 def limitedDMrangeerror_odr(frame):
 	""" The range errors are asymmetric. Take the largest error """
 	ex, ey = limitedDMrangeerror(frame)
-	return np.maximum(ex[0][0], ex[0][1]), np.maximum(ey[0][0], ey[0][1])
+	# return (ex[0][0]+ex[0][1])/2, (ey[0][0]+ey[0][1])/2 # return the average
+	return np.maximum(ex[0][0], ex[0][1]), np.maximum(ey[0][0], ey[0][1]) # larger uncertainties
 
 def fitodr(frame, beta0=[1000], errorfunc=log_error, log=True):
 	fit_model = scipy.odr.Model(reciprocal_odr)
@@ -361,16 +362,17 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 		tempax, fits = plotSlopeVsDuration(fitframes, labels, annotatei=[], fitlines=manylines,
 			logscale=True, fiterrorfunc=log_error, dmtrace=True, hidefitlabel=True)
 
+		fitresults = []
 		for fit, dm in zip(fits, fitlabels):
-			fitresult = {
+			fitresults.append({
 					'name': name.split(' DM')[0],
 					'DM': dm,
 					'param': fit[1],
 					'err': fit[2] ,
 					'red_chisq': fit[3],
 					'numbursts': fit[5]
-				}
-			fitdata = fitdata.append(fitresult,ignore_index=True)
+				})
+		fitdata = pd.concat([fitdata, pd.DataFrame(fitresults)], ignore_index=True)
 
 		fitdf = fitdata.loc[(fitdata.name == name)].set_index('DM')
 		source = limitedDMsloperanges(fitdf, source)

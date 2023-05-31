@@ -88,6 +88,7 @@ def getDataCoords(extents, shape):
 def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
 	# use curve-fit (non-linear leastsq)
 	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
+	data = data / np.max(data) # normalize
 	x, y = getDataCoords(extents, data.shape)
 	# p0 = moments(data) if p0 == [] else p0 # moments is in channel space, needs to be rewritten for data space
 	p0 = [1,0,0,1,100,0] if p0 == [] else p0
