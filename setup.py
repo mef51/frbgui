@@ -16,9 +16,10 @@ setuptools.setup(
 	#packages=setuptools.find_packages(),
 	py_modules=['frbgui', 'driftrate', 'driftlaw'],
 	install_requires=[
-		'dearpygui==0.6.415',
+		'dearpygui>=1.9.1',
+		'dearpygui_ext>=0.9.5'
 		'your>=0.6.5',
-		'pandas'
+		'pandas',
 	],
 	license='MIT',
 	classifiers=[
