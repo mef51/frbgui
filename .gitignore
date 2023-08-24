@@ -39,6 +39,7 @@ columns.*
 SurveyFRB20121102A/data/*/*.txt
 SurveyFRB20121102A/dfdtresults/
 imgui.ini
+dpg.ini
 backups/
 SurveyFRB20121102A/results/old/
 SurveyFRB20121102A/results/11A/
@@ -50,3 +51,4 @@ SurveyFRB20121102A/sampledat/
 SurveyFRB20121102A/datasources/
 SurveyFRB20121102A/talk/
 SurveyFRB20121102A/18wfall_processing/
+texturebug*

@@ -25,7 +25,7 @@ The GUI is extensible and pull requests are welcome.
 
 ## Status
 
-Currently Frbgui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). Frbgui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. Frbgui will run on any platform but with varying performance.
+Currently Frbgui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). Frbgui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. Frbgui will run on most platforms but with varying performance.
 
 ## Installation
 
@@ -157,4 +157,8 @@ Note:
 | ~~sigma_t_ms~~ | 'sigma_t’ in ms. See sigma_t |
 | ~~tau_w_ms_old~~ | tau_w_old in milliseconds |
 
-Thanks to Dr. Sofia Sheikh for contributions to this table.
+Special thanks to Dr. Sofia Sheikh for contributions to this table.
+
+### Attributions
+
+<a href="https://www.flaticon.com/free-icons/meteor" title="meteor icons">Meteor icons created by Freepik - Flaticon</a>

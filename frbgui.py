@@ -1,18 +1,23 @@
 import dearpygui.demo as demo
 import dearpygui.dearpygui as dpg
-from dearpygui_ext import logger
+from dearpygui_ext import logger, themes
 import driftrate, driftlaw
 import os, glob, itertools, io
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import pandas as pd
 from datetime import datetime
 import warnings
 from your.utils.rfi import sk_sg_filter
+import time
 warnings.filterwarnings("ignore")
 
+defaultmpl_backend = matplotlib.get_backend()
 twidth_default = 150
 logwin = None
+# flag for switching the main thread from DPG to Matplotlib. Matplotlib is not threadsafe
+exportPDF = False
 
 # GUI data is stored in this object. Defaults initialized here and at the bottom
 gdata = {
@@ -73,14 +78,16 @@ def makeburstname(filename):
 	return filename.split(os.sep)[-1].split('.')[0]
 
 def log_cb(sender, data):
+	print(f"{sender}, {data}")
 	logwin.log_debug(f"{sender}, {data}")
 def error_log_cb(sender, data):
+	print(f"{sender}, {data}")
 	logwin.log_error(f"{sender}, {data}")
 
-def updatedata_cb(sender, data):
+def updatedata_cb(sender, data, udata):
 	wfall = None
-	if 'filename' in data.keys(): # load burst from disk
-		filename = data['filename']
+	if 'filename' in udata.keys(): # load burst from disk
+		filename = udata['filename']
 		gdata['currfile'] = filename
 		if gdata['currfile'] not in gdata['masks'].keys():
 			gdata['masks'][gdata['currfile']] = {'chans':[], 'ranges':{}}
@@ -116,7 +123,8 @@ def updatedata_cb(sender, data):
 						dpg.set_value('duration', loaded['duration'])
 						dpg.configure_item(key, format='%.{}f'.format(getscale(dt)+3))
 					else:
-						dpg.set_value(key, loaded[key]) # this line sets all the burst fields
+						if dpg.does_alias_exist(key):
+							dpg.set_value(key, loaded[key]) # this line sets all the burst fields
 
 				# post loading tweaks
 				if key == 'time_unit':
@@ -154,8 +162,6 @@ def updatedata_cb(sender, data):
 		gdata['maskrangeid'] = 0
 		dpg.delete_item("MaskRangeGroup", children_only=True)
 		if gdata['masks'][gdata['currfile']]['ranges']:
-			print('ranges exist')
-			print(gdata['masks'][gdata['currfile']]['ranges'])
 			rangeids = []
 			for rangeid, maskrange in gdata['masks'][gdata['currfile']]['ranges'].items():
 				rangeids.append(rangeid)
@@ -189,7 +195,7 @@ def updatedata_cb(sender, data):
 						dpg.set_value('EnableSubBGBox', False)
 						toggle_config('EnableSubBGBox', {'kwargs': ['enabled'], 'items': ['SubtractBGRegion']})
 
-					skitems = ['SKSGSigmaInput','SKSGWindowInput','SKSGStatus']
+					skitems = ['SKSGSigmaInput','SKSGWindowInput']
 					if not pd.isnull(sksigma):
 						dpg.set_value("EnableSKSGMaskBox", True)
 						dpg.set_value('SKSGSigmaInput', int(sksigma))
@@ -233,9 +239,9 @@ def updatedata_cb(sender, data):
 			regions = gdata['multiburst']['regions'][burstname]
 			numregions = len(regions.keys())
 			while numregions > gdata['multiburst']['numregions']-1:
-				addregion_cb(sender, data)
+				addregion_cb(sender, None)
 			while numregions < gdata['multiburst']['numregions']-1:
-				removeregion_cb([gdata['multiburst']['numregions']-1], data)
+				removeregion_cb([gdata['multiburst']['numregions']-1], None)
 			# set the elements based on gdata['regions']
 			for regid, name in enumerate(regions):
 				regid += 1 # off by one
@@ -244,7 +250,7 @@ def updatedata_cb(sender, data):
 				dpg.set_value('RegionType{}'.format(regid), regiontype)
 				drawregion_cb([regid], None)
 
-	elif sender == 'subsample_cb' and data['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
+	elif sender == 'subsample_cb' and udata['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
 		wfall = gdata['wfall']
 
 		disp_bandwidth = gdata['extents'][3] - gdata['extents'][2] # == gdata['burstmeta']['bandwidth']
@@ -264,7 +270,7 @@ def updatedata_cb(sender, data):
 	if wfall.shape == gdata['wfall_original'].shape:
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 		if dpg.get_value('EnableSubBGBox'):
-			tleft, tright = dpg.get_value('SubtractBGRegion')
+			tleft, tright, _, _ = dpg.get_value('SubtractBGRegion')
 			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
@@ -275,14 +281,18 @@ def updatedata_cb(sender, data):
 	# gdata['ts']    = np.nanmean(wfall, axis=0) # time series at burstDM
 	# gdata['pkidx'] = np.nanargmax(gdata['ts']) # pkidx at burstDM, for displaying across DMs
 
-	plotdata_cb(sender, data)
+	plotdata_cb(sender, data, udata)
 
-def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
+# plt.figure will fail unless it is on the main thread, and DPG runs callbacks on a seperate thread
+matplotlib.use('agg') # this is a workaround to the thread issue
+def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None, clim=None):
 	plt.figure(figsize=(5, 5))
 
 	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray',
 				extent=extents)
 	plt.clim(0, np.max(corr)/20)
+	if clim and clim > 0:
+		plt.clim(0, clim)
 	if popt is not None and popt[0] > 0:
 		fitmap = driftrate.makeDataFitmap(popt, corr, extents)
 		if 1 not in fitmap.shape: # subsample ui can result in fitmaps unsuitable for countour plotting
@@ -309,13 +319,15 @@ def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None):
 
 	fig = plt.gcf()
 	fig.canvas.draw()
-	texture = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+	texture = np.frombuffer(fig.canvas.tostring_argb(), dtype='uint8')
 	w, h = fig.get_size_inches()*fig.dpi
+	texture = texture.reshape(int(w*h), 4)[:, [1, 2, 3, 0]].flatten()/255 # reshape to rgba, and normalize
+	plt.close('all')
 	return texture, int(w), int(h)
 
-def plotdata_cb(_, data):
-	if not data:
-		data = {}
+def plotdata_cb(sender, data, userdata):
+	if not data: data = {}
+	if not userdata: userdata = {}
 
 	df, dt      = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
@@ -331,13 +343,13 @@ def plotdata_cb(_, data):
 			popt = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])].iloc[0][poptcols]
 			slope = dmframe.loc[np.isclose(dmframe.index, gdata['displayedDM'])]['slope (mhz/ms)'].iloc[0]
 
-	subname = None if 'resultidx' not in data else subburstdf.index[data['resultidx']]
-	if ('resultidx' not in data) or (subname == burstname):
+	subname = None if 'resultidx' not in userdata else subburstdf.index[userdata['resultidx']]
+	if ('resultidx' not in userdata) or (subname == burstname):
 		gdata['displayedBurst'] = burstname
 		wfall = gdata['wfall'].copy()
 		wfall_cr = driftrate.cropwfall(wfall, twidth=dpg.get_value('twidth'))
 		wfall_dd_cr = driftrate.dedisperse(wfall_cr, ddm, lowest_freq, df, dt)
-	elif ('resultidx' in data) and (subname != burstname):
+	elif ('resultidx' in userdata) and (subname != burstname):
 		gdata['displayedBurst'] = subname
 		subbursts = getSubbursts()
 		subburst = subbursts[subname]
@@ -352,70 +364,68 @@ def plotdata_cb(_, data):
 	extents, correxts = driftrate.getExtents(wfall_dd_cr, df=df, dt=dt, lowest_freq=lowest_freq)
 	gdata['extents'], gdata['correxts'] = extents, correxts
 	dpg.set_value('twidth_ms', wfall_dd_cr.shape[1]*dt)
-	dpg.set_value('pkidx', int(np.nanargmax(np.nanmean(wfall_cr, axis=0))))
-	# print(extents, df, dt, lowest_freq)
+	dpg.set_value('pkidx', int(np.nanargmax(np.nanmean(wfall_dd_cr, axis=0))))
 
 	corr = driftrate.autocorr2d(wfall_dd_cr)
 
 	## enable scale sliders
 	mostmin, mostmax = np.min(wfall_dd_cr), np.max(wfall_dd_cr)
-	dpg.configure_item('wfallscale', enabled=True, min_value=mostmin, max_value=mostmax,
-						format='%.{}f'.format(getscale(mostmin, mostmax)+1))
 	mmincorr, mmaxcorr = np.min(corr), np.max(corr)
-	dpg.configure_item('corrscale', enabled=True, min_value=mmincorr, max_value=mmaxcorr,
-						format='%.{}f'.format(getscale(mmincorr, mmaxcorr)+1))
+	if sender not in ['wfallscale', 'corrscale']:
+		dpg.configure_item('wfallscale', enabled=True, min_value=mostmin, max_value=mostmax,
+							format='%.{}f'.format(getscale(mostmin, mostmax)+1))
+		dpg.configure_item('corrscale', enabled=True, min_value=mmincorr, max_value=mmaxcorr,
+							format='%.{}f'.format(getscale(mmincorr, mmaxcorr)+1))
 
-	if 'scale' in data.keys() and data['scale'] != None:
-		smin, smax = data['scale']
-	else:
-		smin, smax = mostmin, mostmax
+	smin, smax = mostmin, mostmax
+	scmin, scmax = mmincorr, mmaxcorr/20
+	if sender == 'wfallscale':
+		smin, smax = dpg.get_value('wfallscale')[:2]
+	if sender == 'corrscale':
+		scmin, scmax = dpg.get_value('corrscale')[:2]
 	dpg.set_value('wfallscale', [smin, smax])
-
-	if 'cscale' in data.keys() and data['cscale'] != None:
-		scmin, scmax = data['cscale']
-	else:
-		scmin, scmax = mmincorr, mmaxcorr
 	dpg.set_value('corrscale', [scmin, scmax])
 
-	with dpg.plot_axis(dpg.mvYAxis, parent="WaterfallPlot"):
-		dpg.set_axis_limits_auto(dpg.last_container())
-		flatwfall = list(np.flipud(wfall_dd_cr).flatten())
-		if dpg.does_item_exist("Waterfall"):
-			dpg.delete_item('Waterfall')
-		dpg.add_heat_series(flatwfall,
-			wfall_dd_cr.shape[0], wfall_dd_cr.shape[1],
-			tag="Waterfall", scale_min=smin, scale_max=smax,
-			bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
-		if 'keepview' in data.keys() and data['keepview']:
-			## Unimplemented
-			pass
+	flatwfall = list(np.flipud(wfall_dd_cr).flatten())
+	if dpg.does_item_exist("Waterfall"):
+		dpg.delete_item('Waterfall')
+	dpg.add_heat_series(flatwfall,
+		wfall_dd_cr.shape[0], wfall_dd_cr.shape[1],
+		tag="Waterfall", parent="freq_axis", scale_min=smin, scale_max=smax,
+		bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
+	for axis in ['time_axis', 'freq_axis']: dpg.fit_axis_data(axis)
 
 	p0 = gdata['p0'] if dpg.get_value('EnableP0Box') else None
-	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0, correxts, slope)
+	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0, correxts, slope, clim=scmax)
 	if dpg.does_alias_exist('corr2dtexture'):
 		dpg.delete_item('Corr2d') # texture won't delete unless items using it are deleted too
+		time.sleep(0.017) # hack for strange race bug when deleting textures. wait one frame
 		dpg.delete_item('corr2dtexture')
-	dpg.add_static_texture(txwidth, txheight, default_value=corr2dtexture, tag='corr2dtexture', parent="TextureRegistry")
-	with dpg.plot_axis(dpg.mvYAxis, parent='Corr2dPlot'):
-		if dpg.does_alias_exist('Corr2d'): dpg.delete_item('Corr2d')
-		dpg.add_image_series("corr2dtexture",
-			bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]],
-			tag='Corr2d')
+	dpg.add_static_texture(txwidth, txheight, corr2dtexture, tag='corr2dtexture', parent="TextureRegistry")
+	dpg.add_image_series("corr2dtexture", parent="freq_lag_axis",
+		bounds_min=[correxts[0],correxts[2]], bounds_max=[correxts[1], correxts[3]],
+		tag='Corr2d')
+	for axis in ['time_lag_axis', 'freq_lag_axis']: dpg.fit_axis_data(axis)
 
 	tx = np.linspace(extents[0], extents[1], num=len(tseries))
-	with dpg.plot_axis(dpg.mvYAxis, parent="TimeSeriesPlot"):
-		if dpg.does_alias_exist('TimeSeries'): dpg.delete_item('TimeSeries')
-		dpg.add_line_series(tx, tseries, tag="TimeSeries")
+	if dpg.does_alias_exist('TimeSeries'): dpg.delete_item('TimeSeries')
+	with dpg.theme() as theme:
+		with dpg.theme_component(dpg.mvLineSeries):
+			dpg.add_theme_color(dpg.mvPlotCol_Line, (60+19, 103+10, 164+10, 255), category=dpg.mvThemeCat_Plots)
+	dpg.add_line_series(tx, tseries, tag="TimeSeries", parent="tseries_int_axis")
+	dpg.bind_item_theme('TimeSeries', theme)
+	for axis in ['tseries_t_axis', 'tseries_int_axis']: dpg.fit_axis_data(axis)
 
 def twidth_cb(_, data):
+	twidth = data
 	wfall_cr = getCurrentBurst()[4]
-	if round(wfall_cr.shape[1]/2) != dpg.get_value('twidth'):
-		print(f"twidth_cb: {wfall_cr.shape = } {dpg.get_value('twidth') = }")
+	if round(wfall_cr.shape[1]/2) != twidth:
+		print(f"twidth_cb: {wfall_cr.shape = } {twidth = }")
 	for regid in range(1, gdata['multiburst']['numregions']):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			maxval = wfall_cr.shape[1]*gdata['burstmeta']['tres']
 			dpg.configure_item('Region{}'.format(regid), max_value=maxval, speed=maxval*0.005)
-	plotdata_cb(_, data)
+	plotdata_cb(_, None)
 
 def pkidx_cb(_, data):
 	enabled = dpg.get_value('pkidxbool')
@@ -435,7 +445,7 @@ def subsample_cb(sender, data):
 		# Make a copy of the original fall, apply the masks, then downsample
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 		if dpg.get_value('EnableSubBGBox'):
-			tleft, tright = dpg.get_value('SubtractBGRegion')
+			tleft, tright, _, _ = dpg.get_value('SubtractBGRegion')
 			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
@@ -446,18 +456,19 @@ def subsample_cb(sender, data):
 	else:
 		gdata['wfall'] = subfall
 		log_cb('subsample_cb', (numf, numt))
-		updatedata_cb('subsample_cb', {'subsample': True})
+		updatedata_cb('subsample_cb', data, {'subsample': True})
 		return subfall
 
 def directory_cb(sender, data):
-	dpg.set_value('Dirtext', 'Selected: {}'.format(data[0]))
+	path = data['file_path_name']
+	dpg.set_value('Dirtext', 'Selected: {}'.format(path))
 	dpg.configure_item('Filter', enabled=True)
 	dpg.configure_item('clearfilter', enabled=True)
-	files = glob.glob(data[0]+'/{}'.format(gdata['globfilter']))
+	files = sorted(glob.glob(path+'/{}'.format(gdata['globfilter'])))
 	dpg.configure_item('burstselect', items=[os.path.basename(x) for x in files])
-	gdata['datadir'] = data[0]
+	gdata['datadir'] = path
 	gdata['files']   = files
-	log_cb(sender, data[0])
+	log_cb(sender, path)
 
 def filter_cb(sender, data):
 	globfilter = dpg.get_value('Filter')
@@ -473,60 +484,69 @@ def clearfilter_cb(s, d):
 def burstselect_cb(sender, data):
 	filename = dpg.get_value('burstselect')
 	filename = gdata['files'][[os.path.basename(f) for f in gdata['files']].index(filename)]
-	updatedata_cb(sender, {'filename': filename})
+	updatedata_cb(sender, data, {'filename': filename})
 	log_cb(sender, f'Opening file {filename}')
 
 def exportmask_cb(sender, data):
 	datestr = datetime.now().strftime('%b%d')
-	np.save('masks_{}.npy'.format(datestr), [gdata['masks']])
-	print(gdata['masks'])
+	filename = f'masks_{datestr}.npy'
+	np.save(filename, [gdata['masks']])
+	dpg.set_value('maskstatus', f'saved: {filename}')
+	print(f'Saved {filename}')
 
 def importmask_cb(sender, data):
 	if data is None:
 		return
-	if type(data) == list:
-		data = data[-1]
-	filename = data
+	if type(data) == str:
+		filename = data
+	filename = data['file_path_name']
 	log_cb(sender, 'mask selected: {}'.format(data))
 	if filename.split('.')[-1] == 'npy':
 		masks = np.load(filename, allow_pickle=True)[0]
 		if type(masks) == dict:
 			gdata['masks'].update(masks)
-			updatedata_cb(sender, {'keepview': True})
+			updatedata_cb(sender, {'filename': gdata['currfile']})
 			masktable_cb(sender, None)
 		else:
 			error_log_cb(sender, 'invalid mask dictionary selected.')
 	else:
 		error_log_cb(sender, 'invalid mask file selected.')
 
-def removemask_cb(sender, data):
-	coords = dpg.get_table_selections('Masktable') # should be length 1?
-	coord = coords[0]
-	mask = int(dpg.get_table_item('Masktable', coord[0], coord[1]))
-	# print(type(mask), type(gdata['masks'][gdata['currfile']]), type(gdata['masks'][gdata['currfile']][0]))
-	# print(mask, gdata['masks'][gdata['currfile']], mask in gdata['masks'][gdata['currfile']])
+def removemask_cb(sender, data, userdata):
+	mask = userdata
 	if mask in gdata['masks'][gdata['currfile']]['chans']:
 		gdata['masks'][gdata['currfile']]['chans'].remove(mask)
-		dpg.log_debug('removing {} from {} mask'.format(mask, gdata['currfile']))
+		logwin.log_debug('removing {} from {} mask'.format(mask, gdata['currfile']))
 		updatedata_cb(sender, {'keepview': True})
 		masktable_cb(sender, None)
 
 def masktable_cb(sender, data):
-	# dpg makes working with tables impossible so we will delete the table and re-add it every time
 	dpg.delete_item('Masktable')
 
-	mostmasks = 1
-	for burst, masks in gdata['masks'].items():
-		mostmasks = len(masks) if len(masks) > mostmasks else mostmasks
-	tableheight = round(min(25*mostmasks, 250))
-	dpg.add_table('Masktable', [], height=tableheight, parent='Masking', callback=removemask_cb)
+	tableheight = 125
+	with dpg.table(tag='Masktable', header_row=True, height=tableheight,
+		borders_innerV=True, borders_outerH=True, borders_outerV=True,
+		policy=dpg.mvTable_SizingFixedFit,
+		scrollX=True, parent='Masking', before='MaskRangeGroup'):
+		shortnames = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
 
-	columns = [s.split('.')[0][-8:] for s in gdata['masks'].keys()]
-	for key, col in zip(gdata['masks'].keys(), columns):
-		dpg.add_column('Masktable', col, gdata['masks'][key]['chans'])
+		numcols = 0
+		for key, masks in gdata['masks'].items():
+			numcols = max(numcols, len(masks['chans']))
+		for col in range(0, 1+numcols): # enough cols for the burst name and masks
+			if col == 0: dpg.add_table_column(label="Burst")
+			if col == 1: dpg.add_table_column(label="chan#:")
+			if col > 1: dpg.add_table_column()
+
+		for (key, masks), name in zip(gdata['masks'].items(), shortnames):
+			with dpg.table_row():
+				dpg.add_text(name)
+				for chanmask in masks['chans']:
+					dpg.add_selectable(label=chanmask, callback=removemask_cb, user_data=chanmask)
+
 
 def sksgmask_cb(sender, data):
-	items = ['SKSGSigmaInput','SKSGWindowInput','SKSGStatus']
+	items = ['SKSGSigmaInput','SKSGWindowInput']
 	if sender == 'EnableSKSGMaskBox':
 		toggle_config(sender, {'kwargs': ['enabled'], 'items': items})
 
@@ -543,29 +563,36 @@ def sksgmask_cb(sender, data):
 	gdata['sksgmask'] = sksgmask
 	updatedata_cb(sender, {'keepview': True})
 
-def resulttable_cb(sender, data):
-	coords = dpg.get_table_selections('Resulttable')
-	newsel = coords[0].copy()
-	for coord in coords:
-		dpg.set_table_selection('Resulttable', coord[0], coord[1], False)
-	# print("resultidx = ", newsel[0])
-	displayresult_cb('User', {'resultidx': newsel[0]})
+def resulttable_cb(sender, data, userdata):
+	displayresult_cb('User', data, {'trialDM': userdata})
 
 def updateResultTable(resultsdf):
 	if 'slope (mhz/ms)' in resultsdf.columns:
 		resultsdf = driftlaw.computeModelDetails(resultsdf)
 	dpg.delete_item('Resulttable')
-	dpg.add_table('Resulttable', [], height=225, parent='ResultsGroup', callback=resulttable_cb)
 
 	# subset of driftrate.columns:
 	columns = ['name', 'DM', 'amplitude', 'slope (mhz/ms)', 'tau_w_ms', 'angle', 'center_f']
 	# columns = ['name', 'DM', 'amplitude', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)']
-	dpg.set_headers('Resulttable', columns)
+	with dpg.table(tag='Resulttable', header_row=True, height=225, parent='ResultsGroup',
+		borders_innerV=True, borders_outerH=True, borders_outerV=True,
+		scrollY=True,
+		resizable=True,
+		policy=dpg.mvTable_SizingStretchSame,
+		row_background=True,
+		reorderable=True):
+		for col in columns:
+			dpg.add_table_column(label=col)
 
-	# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
-	for burstname, rowdata in resultsdf.iterrows():
-		newrow = [burstname] + [rowdata[col] for col in columns[1:]]
-		dpg.add_row('Resulttable', newrow)
+		# [burstname, trialDM, center_f, slope, slope_err, theta, red_chisq], popt, perr, [fres_MHz, tres_ms/1000]
+		for burstname, rowdata in resultsdf.iterrows():
+			trialDM = rowdata['DM']
+			with dpg.table_row():
+				# adding a component automatically moves to the next cell
+				dpg.add_selectable(label=burstname, height=20, span_columns=True,
+					callback=resulttable_cb, user_data=trialDM)
+				for col in columns[1:]:
+					dpg.add_text(f"{rowdata[col]}")
 
 def mousemask_cb(sender, data):
 	isOnWaterfall = dpg.is_item_hovered('WaterfallPlot')
@@ -627,7 +654,7 @@ def getMeasurementInfo(wfall_cr):
 	fchans, tchans = wfall_cr.shape
 	subbgstart, subbgend, sksigma, skwindow = None, None, None, None
 	if dpg.get_value('EnableSubBGBox'):
-		subbgstart, subbgend = dpg.get_value('SubtractBGRegion')
+		subbgstart, subbgend, _, _= dpg.get_value('SubtractBGRegion')
 	if dpg.get_value('EnableSKSGMaskBox'):
 		sksigma, skwindow = dpg.get_value('SKSGSigmaInput'), dpg.get_value('SKSGWindowInput')
 	cols = ['downf', 'downt', 'fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
@@ -652,13 +679,13 @@ def progress_cb(val, data):
 	overlay = dpg.get_item_configuration("SlopeStatus")['overlay'].split(' (')[0]
 	dpg.configure_item('SlopeStatus', overlay=f"{overlay} ({data})")
 
-def slope_cb(sender, data):
+def slope_cb(sender, data, userdata):
 	burstname, df, dt, lowest_freq, wfall_cr, burstDM = getCurrentBurst()
 
-	if data is not None:
+	if userdata is not None:
 		dpg.configure_item('SlopeStatus', overlay='Status: Doing second pass...')
-		p0 = data['p0']
-		trialDMs = data['badfitDMs']
+		p0 = userdata['p0']
+		trialDMs = userdata['badfitDMs']
 	else:
 		dpg.configure_item('SlopeStatus', overlay='Status: Calculating...')
 		p0 = [] if not gdata['p0'] else gdata['p0']
@@ -685,18 +712,9 @@ def slope_cb(sender, data):
 		burstdf = burstdf.append(subdf)
 
 	# Do a second pass using the best p0 just found
-	# TODO: only repeat bad fits
-	# TODO: remove?
 	p0 = getOptimalFit(burstdf)
-	if data is None:
-		# ensure p0 is in center of autocorr
-		# p0[1], p0[2] = 0, 0
-		# if not (wfall_cr.shape[1]*0.9 <= float(p0[1]) <= wfall_cr.shape[1]*1.1):
-		# 	p0[1] = 0
-		# if not (wfall_cr.shape[0]*0.9 <= float(p0[2]) <= wfall_cr.shape[0]*1.1):
-		# 	p0[2] = 0
-		# todo: find bad dms
-		return slope_cb(sender, {'p0' : p0, 'badfitDMs': trialDMs})
+	if userdata is None:
+		return slope_cb(sender, data, {'p0' : p0, 'badfitDMs': trialDMs})
 
 	# Add measurement info to row (things needed to reproduce/reload the measurement)
 	cols, row = getMeasurementInfo(wfall_cr)
@@ -727,9 +745,9 @@ def slope_cb(sender, data):
 	dpg.configure_item('EnableP0Box', enabled=True)
 	initializeP0Group()
 	updateResultTable(burstdf)
-	plotdata_cb(sender, data)
+	plotdata_cb(sender, data, userdata)
 
-def redodm_cb(sender, data):
+def redodm_cb(sender, data, userdata):
 	p0 = gdata['p0']
 	useForAll = dpg.get_value('P0AllDMsBox')
 
@@ -760,13 +778,13 @@ def redodm_cb(sender, data):
 		updateResultTable(subburstdf)
 		subburstdf = subburstdf.reset_index()
 		resultidx = subburstdf[(subburstdf.name == displayedname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
-		if data is None:
-			data = {}
-		data['resultidx'] = resultidx
+		if userdata is None:
+			userdata = {}
+		userdata['resultidx'] = resultidx
 	else:
 		updateResultTable(gdata['burstdf'])
 	backupresults()
-	plotdata_cb(sender, data)
+	plotdata_cb(sender, data, userdata)
 
 	# if useForAll programatically click "next DM" then repeat this block
 	# that will preserve the behaviour where regions only need to be read at the start
@@ -775,8 +793,8 @@ def redodm_cb(sender, data):
 		redoidx = tabledf[(tabledf.name == gdata['displayedBurst']) & (np.isclose(tabledf.DM, dispdm))].index[0]
 		maxidx = len(tabledf)
 		if redoidx+1 < maxidx:
-			displayresult_cb('NextDM', None)
-			redodm_cb(sender, None)
+			displayresult_cb('NextDM', None, None)
+			redodm_cb(sender, None, None)
 
 def getAllRegions():
 	ret = {}
@@ -793,7 +811,11 @@ def getAllRegions():
 	return ret
 
 def loadresults_cb(sender, data):
-	resultsfile = os.path.join(*data)
+	if data is None:
+		return
+	if type(data) == str:
+		resultfile = data
+	resultsfile = data['file_path_name']
 	resultsdf = pd.read_csv(resultsfile).set_index('name')
 	gdata['resultsdf'] = resultsdf
 	regionsobj = driftrate.readRegions(resultsdf)
@@ -801,23 +823,24 @@ def loadresults_cb(sender, data):
 	burstselect_cb(sender, data)
 
 def exportresults_cb(sender, data):
+	global exportPDF
 	resultsdf = gdata['resultsdf']
-
 	df = driftlaw.computeModelDetails(resultsdf)
 
 	datestr = datetime.now().strftime('%b%d')
 	prefix = dpg.get_value('ExportPrefix')
-	filename = '{}_{}rows_{}.csv'.format(prefix, len(df.index), datestr)
-	try:
-		df.to_csv(filename)
-		dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
-	except PermissionError as e:
-		dpg.set_value('ExportCSVText', 'Permission Denied')
-	dpg.configure_item('ExportCSVText', show=True)
+	filename = f'{prefix}_{len(df.index)}rows_{datestr}.csv'
 
-	if sender == 'ExportPDFBtn':
-		dpg.configure_item('ExportPDFText', show=True)
-		dpg.set_value('ExportPDFText', 'Saving PDF...')
+	if sender == 'ExportCSVBtn' or sender == 'ExportPDFBtn':
+		dpg.configure_item('ExportCSVText', show=True)
+		try:
+			df.to_csv(filename)
+			dpg.set_value('ExportCSVText', 'Saved to {}'.format(filename))
+		except PermissionError as e:
+			dpg.set_value('ExportCSVText', 'Permission Denied')
+		if sender == "ExportPDFBtn":
+			exportPDF = True # callback thread lets main thread know to run matplotlib on next frame
+	elif sender == 'MainThread':
 		success = driftrate.plotResults(filename, datafiles=gdata['files'], masks=gdata['masks'])
 		if success:
 			dpg.set_value('ExportPDFText', f'Saved to {filename.split(".")[0]+".pdf"}')
@@ -834,7 +857,7 @@ def backupresults():
 	filename = 'backups/{}_results_{}.csv'.format(prefix, datestr)
 	df.to_csv(filename)
 
-def displayresult_cb(sender, data):
+def displayresult_cb(sender, data, userdata):
 	burstDM = gdata['burstDM']
 	dmlist = list(gdata['burstdf'].loc[gdata['burstdf'].index[0]]['DM'])
 
@@ -846,7 +869,7 @@ def displayresult_cb(sender, data):
 	subburstdf = subburstdf.set_index('name')
 
 	if sender == 'User':
-		resultidx = data['resultidx']
+		resultidx = dmlist.index(userdata['trialDM'])
 	elif sender == 'NextDM':
 		resultidx = resultidx + 1
 		if not (resultidx < len(subburstdf)):
@@ -854,14 +877,14 @@ def displayresult_cb(sender, data):
 	elif sender == 'PrevDM':
 		resultidx = resultidx - 1
 
-	if data is None:
-		data = {}
-	data['resultidx'] = resultidx
+	if userdata is None:
+		userdata = {}
+	userdata['resultidx'] = resultidx
 	subname = subburstdf.index[resultidx]
 	gdata['displayedDM'] = dmlist[resultidx % len(dmlist)]
 	dpg.set_value('dmdisplayed', str(round(gdata['displayedDM'], getscale(gdata['displayedDM']))))
 	dpg.set_value('burstdisplayed', subname)
-	plotdata_cb(sender, data)
+	plotdata_cb(sender, data, userdata)
 
 def confirmpopup(data, cb):
 	with popup("main", "ConfirmDelete", modal=True):
@@ -919,11 +942,12 @@ def initializeP0Group():
 	dpg.configure_item('AngleDrag', speed=0.01, format='%.8f')
 	return p0
 
-def enablep0_cb(sender, data):
-	toggle_config(sender, data)
-	updatep0_cb(sender, data)
+def enablep0_cb(sender, data, userdata):
+	toggle_config(sender, userdata)
+	updatep0_cb(sender, data, userdata)
 
-def updatep0_cb(sender, data):
+def updatep0_cb(sender, data, userdata):
+	if not userdata: userdata = {}
 	p0 = []
 
 	# get resultidx
@@ -932,27 +956,24 @@ def updatep0_cb(sender, data):
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
 	resultidx = subburstdf[(subburstdf.name == subname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
 	if gdata['multiburst']['enabled']:
-		if data is None:
-			data = {}
-		data['resultidx'] = resultidx
+		userdata['resultidx'] = resultidx
 
 	for item in ['AmplitudeDrag', 'x0y0Drag', 'SigmaXYDrag', 'AngleDrag']:
 		val = dpg.get_value(item)
-		if type(val) == list:
-			p0 = p0 + val
+		if type(val) == list: # x0y0Drag or SigmaXYDrag
+			p0 = p0 + val[:2]
 		else:
 			p0.append(val)
 	gdata['p0'] = p0
-	plotdata_cb(sender, data)
+	print(f"{sender = }, {data = }, {userdata = }")
+	plotdata_cb(sender, data, userdata)
 
 def enablesplitting_cb(sender, data):
-	items = ['Region', 'RegionType', 'RemoveRegionBtn', 'AddRegionBtn', 'ExportRegionBtn']
+	items = ['Region', 'RegionType', 'RemoveRegionBtn', 'AddRegionBtn']
 	gdata['multiburst']['enabled'] = dpg.get_value(sender)
 	items = items.copy()
 	items.remove('AddRegionBtn')
-	items.remove('ExportRegionBtn')
 	toggle_config(sender, {'kwargs': ['enabled'], 'items': ['AddRegionBtn']})
-	toggle_config(sender, {'kwargs': ['enabled'], 'items': ['ExportRegionBtn']})
 	for regid in range(1, gdata['multiburst']['numregions']):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			itemsid = list(map(lambda item: item+'{}'.format(regid), items))
@@ -961,31 +982,23 @@ def enablesplitting_cb(sender, data):
 			if gdata['multiburst']['enabled']:
 				drawregion_cb([regid], None)
 			else:
-				seriesname = 'Region{}Series'.format(regid)
-				[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+				seriesnames = [f'Region{regid}Series', f'Region{regid}TSeries']
+				for axis, seriesname in zip(['freq_axis', 'tseries_int_axis'], seriesnames):
+					dpg.delete_item(seriesname)
 
-def exportregions_cb(sender, data):
-	regions = getAllRegions()
-	saveobj = {gdata['displayedBurst']: regions}
-	datestr = datetime.now().strftime('%b%d')
-	filename = 'burstregions_{}.npy'.format(datestr)
-	if os.path.exists(filename):
-		loadobj = np.load(filename, allow_pickle=True)[0]
-		loadobj[gdata['displayedBurst']] = regions
-		saveobj = loadobj
-	np.save(filename, [saveobj])
-	print(saveobj)
-	print('Saved', filename)
-
-def addregion_cb(sender, data):
+def addregion_cb(sender, _):
 	regionSelector()
 	drawregion_cb([gdata['multiburst']['numregions']-1], None)
 
-def removeregion_cb(sender, data):
+def removeregion_cb(sender, _):
 	regid = sender[-1]
 	dpg.delete_item('RegionSelector{}'.format(regid))
 	seriesname = 'Region{}Series'.format(regid)
-	[dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
+	seriesnames = [f'Region{regid}Series', f'Region{regid}TSeries']
+	for seriesname in seriesnames:
+		dpg.delete_item(seriesname)
+	# dpg.delete_series(seriesname) # needs to be removed from both plots, tags are unique
+	# [dpg.delete_series(plot, seriesname) for plot in ['WaterfallPlot', 'TimeSeriesPlot']]
 	gdata['multiburst']['numregions'] -= 1
 
 colors = [
@@ -996,7 +1009,7 @@ colors = [
 	(255, 0, 255),
 	(0, 255, 255)
 ]
-def drawregion_cb(sender, data):
+def drawregion_cb(sender, _):
 	regid = sender[-1]
 	region = dpg.get_value('Region{}'.format(regid))
 	regiontype = dpg.get_value('RegionType{}'.format(regid))
@@ -1005,46 +1018,49 @@ def drawregion_cb(sender, data):
 		region.sort()
 		dpg.set_value('Region{}'.format(regid), region)
 
-	seriesname = 'Region{}Series'.format(regid)
-	for plot in ['WaterfallPlot', 'TimeSeriesPlot']:
-		dpg.delete_series(plot, seriesname)
-		dpg.add_vline_series(plot, seriesname, region,
-			update_bounds=False,
-			weight=1.5,
-			color=colors[(int(regid)-1) % len(colors)]
-		)
-
+	seriesnames = [f'Region{regid}Series', f'Region{regid}TSeries']
+	for axis, seriesname in zip(['freq_axis', 'tseries_int_axis'], seriesnames):
+		dpg.delete_item(seriesname)
+		with dpg.theme() as linetheme:
+			with dpg.theme_component(dpg.mvVLineSeries):
+				dpg.add_theme_color(dpg.mvPlotCol_Line, colors[(int(regid)-1) % len(colors)],
+					category=dpg.mvThemeCat_Plots)
+				dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 1.5,
+					category=dpg.mvThemeCat_Plots)
+		dpg.add_vline_series(region, tag=seriesname, parent=axis)
+		dpg.bind_item_theme(seriesname, linetheme)
 
 def addMaskRange_cb(sender, rangeid):
 	maxchan = gdata['wfall_original'].shape[0]-1
 	if not rangeid:
 		gdata["maskrangeid"] += 1
 		rangeid = gdata["maskrangeid"]
-	with dpg.group(f'MaskRange{rangeid}', horizontal=True, parent='MaskRangeGroup'):
-		dpg.add_drag_int2(f'rangeslider##{rangeid}', label='Mask Range', width=200,
-			callback=maskrange_cb,
+	with dpg.group(tag=f'MaskRange{rangeid}', horizontal=True, parent='MaskRangeGroup'):
+		dpg.add_drag_intx(tag=f'rangeslider##{rangeid}', label='Mask Range', width=200,
+			callback=maskrange_cb, size=2,
 			min_value=0, max_value=maxchan)
-		dpg.add_button(f'removerange##{rangeid}', label='X', enabled=True,
+		dpg.add_button(tag=f'removerange##{rangeid}', label='X', enabled=True,
 			callback=removemaskrange_cb)
-	if sender[-1] not in gdata['masks'][gdata['currfile']]['ranges']:
-		gdata['masks'][gdata['currfile']]['ranges'][sender[-1]] = [0, 0]
+	if rangeid not in gdata['masks'][gdata['currfile']]['ranges']:
+		gdata['masks'][gdata['currfile']]['ranges'][rangeid] = [0, 0]
 
 def removemaskrange_cb(sender, data):
-	if sender[-1] in gdata['masks'][gdata['currfile']]['ranges']:
-		del gdata['masks'][gdata['currfile']]['ranges'][sender[-1]]
-	dpg.delete_item(f'MaskRange{sender[-1]}')
+	rangeid = int(sender[-1])
+	if rangeid in gdata['masks'][gdata['currfile']]['ranges']:
+		del gdata['masks'][gdata['currfile']]['ranges'][rangeid]
+	dpg.delete_item(f'MaskRange{rangeid}')
 	updatedata_cb(sender, {'keepview': True})
 
 def maskrange_cb(sender, data):
-	maskrange = dpg.get_value(sender)
+	rangeid = int(sender[-1])
+	*maskrange, _, _ = dpg.get_value(sender)
 	# print(gdata['masks'][gdata['currfile']], '\n----')
-	gdata['masks'][gdata['currfile']]['ranges'][sender[-1]] = maskrange
+	gdata['masks'][gdata['currfile']]['ranges'][rangeid] = maskrange
 	updatedata_cb(sender, {'keepview': True})
 	# masktable_cb(sender, None)
 
 def regionSelector():
 	regid = gdata['multiburst']['numregions']
-	before = "AddRegionBtn" if regid > 1 else ""
 	enabled = gdata['multiburst']['enabled']
 	if 'wfall' in gdata:
 		maxval =  gdata['extents'][1]
@@ -1052,7 +1068,7 @@ def regionSelector():
 		maxval = 100
 
 	with dpg.group(tag='RegionSelector{}'.format(regid), horizontal=True, parent='SplittingSection',
-		before=before):
+		before="AddRegionBtn"):
 		dpg.add_drag_floatx(tag='Region{}'.format(regid),
 			size=2,
 			label='(ms)',
@@ -1141,14 +1157,16 @@ def toggle_config(sender, data):
 		dpg.configure_item(item, **config_dict)
 
 def dmchange_cb(sender, data):
-	newDM = round(dpg.get_value('DM'), 3)
+	newDM = round(data, 3)
 
 	# update
 	gdata['displayedDM'] = newDM
 	dpg.set_value('dmdisplayed', str(gdata['displayedDM']))
 	if gdata['wfall'].shape == gdata['wfall_original'].shape:
-		dpg.configure_item('SaveDMButton', enabled=True)
-	plotdata_cb(sender, data)
+		dpg.configure_item('SaveDMButton',
+			enabled=bool(gdata['burstmeta']['DM'] != gdata['displayedDM']))
+
+	plotdata_cb(sender, None)
 
 def savedm_cb(sender, data):
 	newDM = round(dpg.get_value('DM'), 3)
@@ -1178,15 +1196,46 @@ def frbgui(filefilter=gdata['globfilter'],
 		winwidth=1700,
 		winheight=850,
 	):
-	global logwin
+	global logwin, exportPDF
 	dpg.create_context()
-	dpg.create_viewport(title='frbgui', width=winwidth, height=winheight)
+
+	#### Themeing
+	darktheme = themes.create_theme_imgui_dark()
+	lighttheme = themes.create_theme_imgui_light()
+
+	with dpg.theme() as global_theme:
+		with dpg.theme_component(dpg.mvAll):
+			dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4, category=dpg.mvThemeCat_Core)
+			dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 4)
+
+		# fix for disabled theme see DearPyGui/issues/2068
+		disabledcolor = (45, 45, 48)
+		comps = [dpg.mvInputText, dpg.mvButton, dpg.mvRadioButton, dpg.mvTabBar, dpg.mvTab, dpg.mvImage, dpg.mvMenuBar, dpg.mvViewportMenuBar, dpg.mvMenu, dpg.mvMenuItem, dpg.mvChildWindow, dpg.mvGroup, dpg.mvDragFloatMulti, dpg.mvSliderFloat, dpg.mvSliderInt, dpg.mvFilterSet, dpg.mvDragFloat, dpg.mvDragInt, dpg.mvInputFloat, dpg.mvInputInt, dpg.mvColorEdit, dpg.mvClipper, dpg.mvColorPicker, dpg.mvTooltip, dpg.mvCollapsingHeader, dpg.mvSeparator, dpg.mvCheckbox, dpg.mvListbox, dpg.mvText, dpg.mvCombo, dpg.mvPlot, dpg.mvSimplePlot, dpg.mvDrawlist, dpg.mvWindowAppItem, dpg.mvSelectable, dpg.mvTreeNode, dpg.mvProgressBar, dpg.mvSpacer, dpg.mvImageButton, dpg.mvTimePicker, dpg.mvDatePicker, dpg.mvColorButton, dpg.mvFileDialog, dpg.mvTabButton, dpg.mvDrawNode, dpg.mvNodeEditor, dpg.mvNode, dpg.mvNodeAttribute, dpg.mvTable, dpg.mvTableColumn, dpg.mvTableRow]
+		themecolors = [dpg.mvThemeCol_Button, dpg.mvThemeCol_ButtonActive, dpg.mvThemeCol_ButtonHovered, dpg.mvThemeCol_FrameBg, dpg.mvThemeCol_FrameBgActive, dpg.mvThemeCol_FrameBgHovered]
+		for comp_type in comps:
+			with dpg.theme_component(comp_type, enabled_state=False):
+				dpg.add_theme_color(dpg.mvThemeCol_Text, (0.50 * 255, 0.50 * 255, 0.50 * 255, 1.00 * 255))
+				for color in themecolors:
+					dpg.add_theme_color(color, disabledcolor)
+
+		dpg.bind_theme(global_theme)
+	####
+
+	dpg.create_viewport(title='frbgui', width=winwidth, height=winheight,
+						# x_pos=1600, y_pos=-550, # with two monitors
+						x_pos=0, y_pos=0, # one monitor
+						small_icon='frbgui.ico', large_icon='frbgui.ico')
 	dpg.add_texture_registry(tag="TextureRegistry")
+	logwin = logger.mvLogger() # todo: replace with something more usable
 
 	gdata['datadir'] = datadir
 	with dpg.window(label='FRB Analysis', width=560, height=745, pos=[10, 30]):
 		with dpg.collapsing_header(label="1. Data", default_open=True):
-			dpg.add_button(label="Select Directory...", callback=lambda s, d: dpg.select_directory_dialog(directory_cb))
+			dpg.add_file_dialog(show=False, directory_selector=True,
+				callback=directory_cb,
+				tag='dirselector', label="Select Directory", modal=True, width=700, height=400)
+			# dpg.add_file_extension('.npz', color=(255, 255, 255, 255//2), parent='dirselector')
+			dpg.add_button(label="Select Directory...", callback=lambda s, d: dpg.show_item('dirselector'))
 			dpg.add_text(tag="Dirtext", default_value="Selected: (no directory selected)")
 			with dpg.group(horizontal=True):
 				dpg.add_text("Filter:")
@@ -1196,7 +1245,6 @@ def frbgui(filefilter=gdata['globfilter'],
 			dpg.add_text("Files found:")
 			with dpg.group(horizontal=True):
 				dpg.add_listbox(items=[], tag="burstselect", label='', num_items=10, width=520, callback=burstselect_cb)
-				dpg.add_text(label="(?)", color=[150, 150, 150])
 				with dpg.tooltip(dpg.last_item()):
 					dpg.add_text("Select to load burst...")
 
@@ -1205,17 +1253,17 @@ def frbgui(filefilter=gdata['globfilter'],
 			with dpg.group(horizontal=True):
 				dpg.add_input_float(tag='DM', label='DM (pc/cm3)', callback=dmchange_cb, step=0.100000)
 				dpg.add_button(tag="SaveDMButton", label='Save', callback=savedm_cb, enabled=False)
-			dpg.add_input_float(tag='dt', label='Time Resolution (ms)')
-			dpg.add_input_float(tag='df', label='Freq Resolution (MHz)')
-			dpg.add_input_float(tag='center_f', label='Center Frequency (MHz)')
-			dpg.add_input_float(tag='bandwidth', label='Bandwidth (MHz)')
-			dpg.add_input_float(tag='duration', label='Data Duration')
-			dpg.add_input_float(tag='burstSN', label='Burst SNR')
-			dpg.add_input_text(tag='telescope', label='Telescope')
+			dpg.add_input_float(tag='dt', label='Time Resolution (ms)', enabled=False)
+			dpg.add_input_float(tag='df', label='Freq Resolution (MHz)', enabled=False)
+			dpg.add_input_float(tag='center_f', label='Center Frequency (MHz)', enabled=False)
+			dpg.add_input_float(tag='bandwidth', label='Bandwidth (MHz)', enabled=False)
+			dpg.add_input_float(tag='duration', label='Data Duration', enabled=False)
+			dpg.add_input_float(tag='burstSN', label='Burst SNR', enabled=False)
+			dpg.add_input_text(tag='telescope', label='Telescope', enabled=False)
 			## TODO: Use these units to populate the resolution inputs
-			dpg.add_input_text(tag='freq_unit', label='Frequency Unit')
-			dpg.add_input_text(tag='time_unit', label='Time Unit')
-			dpg.add_input_text(tag='int_unit', label='Intensity Unit')
+			dpg.add_input_text(tag='freq_unit', label='Frequency Unit', enabled=False)
+			dpg.add_input_text(tag='time_unit', label='Time Unit', enabled=False)
+			dpg.add_input_text(tag='int_unit', label='Intensity Unit', enabled=False)
 			dpg.add_input_int(tag='twidth', label='Display width (# chans)',
 				default_value=twidth_default,
 				step=10,
@@ -1256,15 +1304,17 @@ def frbgui(filefilter=gdata['globfilter'],
 					callback=subtractbg_cb
 				)
 
-			with dpg.tree_node(label='Masking', default_open=True):
+			with dpg.tree_node(label='Masking', tag='Masking', default_open=True):
 				dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
 				dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
 
 				with dpg.group(horizontal=True):
+					dpg.add_file_dialog(tag='maskdialog', show=False, callback=importmask_cb,
+						width=700, height=400, modal=True)
+					dpg.add_file_extension('.npy', parent='maskdialog')
 					dpg.add_button(label='Export Masks', callback=exportmask_cb, enabled=True)
-					dpg.add_button(label='Import Masks',
-						callback=lambda s, d: dpg.open_file_dialog(importmask_cb, extensions='.npy'),
-						enabled=True)
+					dpg.add_button(label='Import Masks', callback=lambda s, d: dpg.show_item('maskdialog'))
+					dpg.add_text(tag='maskstatus', label='', color=(255, 255, 0))
 
 				dpg.add_table(tag='Masktable', height=100)
 
@@ -1282,7 +1332,7 @@ def frbgui(filefilter=gdata['globfilter'],
 						callback=sksgmask_cb, enabled=False, min_value=1)
 					dpg.add_input_int(tag="SKSGWindowInput", width=100, default_value=15, label="window",
 						callback=sksgmask_cb, enabled=False, min_value=1)
-				dpg.add_text(tag='SKSGStatus', default_value=' ')
+				# dpg.add_text(tag='SKSGStatus', default_value=' ')
 
 			with dpg.tree_node(label='Downsampling', default_open=True):
 				dpg.add_text(tag="Wfallshapelbl", default_value="Original Size: (no burst selected)")
@@ -1299,13 +1349,11 @@ def frbgui(filefilter=gdata['globfilter'],
 				user_data={'kwargs': ['enabled']}
 			)
 			regionSelector()
-			with dpg.group(horizontal=True):
-				dpg.add_button(tag='AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
-				dpg.add_button(tag='ExportRegionBtn', label="Export Regions", callback=exportregions_cb, enabled=False)
+			dpg.add_button(tag='AddRegionBtn', label="Add Region", callback=addregion_cb, enabled=False)
 
-		with dpg.collapsing_header(tag='SlopeSection', label="4. Sub-burst Slope Measurements", default_open=True):
+		with dpg.collapsing_header(tag='SlopeSection', label="4. Spectro-Temporal Measurements", default_open=True):
 			with dpg.group(horizontal=True):
-				dpg.add_button(label="Measure Slope over DM Range", callback=slope_cb)
+				dpg.add_button(label="Measure over DM Range", callback=slope_cb)
 				dpg.add_progress_bar(tag="SlopeStatus", default_value=0,
 					overlay="Status: Click to calculate",
 					width=300
@@ -1314,10 +1362,12 @@ def frbgui(filefilter=gdata['globfilter'],
 				default_value=True, enabled=True
 			)
 			with dpg.group(horizontal=True):
-				dpg.add_button(label="Load Results",
-					callback=lambda s, d:dpg.open_file_dialog(loadresults_cb, extensions='.csv'))
+				dpg.add_file_dialog(tag='resultsdialog', show=False, callback=loadresults_cb,
+						width=700, height=400, modal=True)
+				dpg.add_file_extension('.csv', parent='resultsdialog')
+				dpg.add_button(label="Load Results", callback=lambda s, d:dpg.show_item('resultsdialog'))
 				dpg.add_text(tag="LoadResultsWarning", color=(255, 0, 0),
-					default_value="Warning: will overwrite unsaved results")
+					default_value="Warning: loading will overwrite unsaved results")
 			with dpg.group(horizontal=True):
 				dpg.add_button(tag='DeleteBurstBtn',
 					label="Delete this burst's results",
@@ -1368,12 +1418,13 @@ def frbgui(filefilter=gdata['globfilter'],
 					dpg.add_button(tag="RedoBtn", label="Redo this DM", callback=redodm_cb, enabled=False)
 
 			with dpg.group(tag='ResultsGroup'):
-				dpg.add_table(tag='Resulttable', height=10, parent='ResultsGroup', callback=resulttable_cb)
+				dpg.add_table(tag='Resulttable', header_row=True, height=10, callback=resulttable_cb)
 
 			dpg.add_input_text(tag='ExportPrefix', label='Filename Prefix', default_value="Test")
 			with dpg.group(horizontal=True):
 				dpg.add_button(tag='ExportCSVBtn', label="Export Results CSV", callback=exportresults_cb, enabled=False)
 				dpg.add_text(tag='ExportCSVText', default_value=' ', show=True, color=(0, 255, 0))
+			with dpg.group(horizontal=True):
 				dpg.add_button(tag='ExportPDFBtn', label="Export Results PDF", callback=exportresults_cb, enabled=False)
 				dpg.add_text(tag='ExportPDFText', default_value=' ', show=True, color=(0, 255, 0))
 
@@ -1381,31 +1432,26 @@ def frbgui(filefilter=gdata['globfilter'],
 	with dpg.window(label="FRB Plots", width=1035, height=745, pos=[600,30]):
 		with dpg.group(horizontal=True):
 			dpg.add_slider_floatx(tag="wfallscale", size=2, label='Wfall Min/Max', enabled=False,
-								  width=400, callback=plotdata_cb,
-								  user_data=lambda: {'scale': dpg.get_value('wfallscale')})
+								  width=400, callback=plotdata_cb)
 			dpg.add_slider_floatx(tag="corrscale", size=2, label='Corr Min/Max', enabled=False,
-								  width=400, callback=plotdata_cb,
-								  user_data=lambda: {'cscale': dpg.get_value('corrscale')})
+								  width=400, callback=plotdata_cb)
 
 		with dpg.group(horizontal=True):
-			# Colors: From implot.cpp: {"Default","Deep","Dark","Pastel","Paired","Viridis","Plasma","Hot","Cool","Pink","Jet"};
-
 			with dpg.plot(tag="WaterfallPlot", height=480, width=500):
-				dpg.add_plot_axis(dpg.mvXAxis, label="Time (ms)")
-				dpg.add_plot_axis(dpg.mvYAxis, label="Frequency (MHz)")
-				dpg.bind_colormap("WaterfallPlot", 5) # Viridis
+				dpg.add_plot_axis(dpg.mvXAxis, label="Time (ms)", tag="time_axis")
+				dpg.add_plot_axis(dpg.mvYAxis, label="Frequency (MHz)", tag="freq_axis")
+				dpg.bind_colormap("WaterfallPlot", dpg.mvPlotColormap_Viridis)
 			with dpg.handler_registry():
 				dpg.add_mouse_click_handler(callback=mousemask_cb)
 
 			with dpg.plot(tag="Corr2dPlot", height=480, width=500):
-				dpg.add_plot_axis(dpg.mvXAxis, label="Time lag (ms)")
-				dpg.add_plot_axis(dpg.mvYAxis, label="Frequency lag (MHz)")
+				dpg.add_plot_axis(dpg.mvXAxis, label="Time lag (ms)", tag="time_lag_axis")
+				dpg.add_plot_axis(dpg.mvYAxis, label="Frequency lag (MHz)", tag="freq_lag_axis")
 				dpg.bind_colormap("Corr2dPlot", 9) # Pink. "Hot" is good too
 
 		with dpg.plot(tag="TimeSeriesPlot", height=200, width=500):
-			dpg.add_plot_axis(dpg.mvXAxis, label="Time (ms)")
-			dpg.add_plot_axis(dpg.mvYAxis, label="Intensity (arb.)")
-
+			dpg.add_plot_axis(dpg.mvXAxis, label="Time (ms)", tag="tseries_t_axis")
+			dpg.add_plot_axis(dpg.mvYAxis, label="Intensity (arb.)", tag="tseries_int_axis")
 
 	### Main Menu Bar
 	with dpg.window(tag="main"):
@@ -1413,31 +1459,25 @@ def frbgui(filefilter=gdata['globfilter'],
 			with dpg.menu(label="Menu"):
 				pass
 			with dpg.menu(label="Themes"):
-				dpg.add_menu_item(label="Dark", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Light", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Classic", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+T")
-				dpg.add_menu_item(label="Dark 2", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Dark Grey", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Cherry", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Purple", callback = lambda sender, data: dpg.set_theme(sender), check=True)
-				dpg.add_menu_item(label="Gold", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+P")
-				dpg.add_menu_item(label="Red", callback = lambda sender, data: dpg.set_theme(sender), check=True, shortcut="Ctrl+Shift+Y")
+				dpg.add_menu_item(label="Default", callback = lambda sender, data: dpg.bind_theme(global_theme))
+				dpg.add_menu_item(label="Dark", callback = lambda sender, data: dpg.bind_theme(darktheme))
+				dpg.add_menu_item(label="Light", callback = lambda sender, data: dpg.bind_theme(lighttheme))
 			with dpg.menu(label="Tools"):
-				dpg.add_menu_item(label="Show Logger", callback=logger.mvLogger())
+				dpg.add_menu_item(label="Show Logger", callback=logger.mvLogger)
 				dpg.add_menu_item(label="Show About", callback=dpg.show_about)
 				dpg.add_menu_item(label="Show Metrics", callback=dpg.show_metrics)
 				dpg.add_menu_item(label="Show Documentation", callback=dpg.show_documentation)
 				dpg.add_menu_item(label="Show Debug", callback=dpg.show_debug)
 				dpg.add_menu_item(label="Show Style Editor", callback=dpg.show_style_editor)
+				dpg.add_menu_item(label="Show Texture Registry", callback=lambda:dpg.configure_item("TextureRegistry", show=True))
+				dpg.add_menu_item(label="Show Item Registry", callback=dpg.show_item_registry)
 				# dpg.add_menu_item("Show Demo", callback=dpg.show_demo)
 
 	# dpg.show_documentation()
-	logwin = logger.mvLogger()
 
 	# Load defaults
 	dpg.set_value('Filter', filefilter)
-	directory_cb('user', [datadir])
+	directory_cb('user', {'file_path_name': datadir})
 	if len(gdata['files']) != 0:
 		burstselect_cb('burstselect', None)
 		importmask_cb('user', maskfile)
@@ -1454,7 +1494,22 @@ def frbgui(filefilter=gdata['globfilter'],
 	dpg.setup_dearpygui()
 	dpg.show_viewport()
 	dpg.set_primary_window('main', True)
-	dpg.start_dearpygui() # starts render loop. render loop can be manual
+
+	# Start manual render loop. Matplotlib doesn't like running in threads so we will
+	# pause DPG and run the pdf export code on the main thread when needed.
+	# for the corr2dtexture matplotlib runs fine so long as a non-interactive backend is used
+	# like 'agg'. This workaround however doesn't seem to work for pdf export,
+	# possibly because of the additional use of the PDF backend.
+	while dpg.is_dearpygui_running():
+		if exportPDF:
+			dpg.configure_item('ExportPDFText', show=True)
+			dpg.set_value('ExportPDFText', 'Saving PDF...')
+			dpg.render_dearpygui_frame() # update text
+			exportresults_cb("MainThread", None)
+			exportPDF = False
+		dpg.render_dearpygui_frame()
+	# dpg.start_dearpygui() # is replaced by above block
+
 	dpg.destroy_context()
 
 	return gdata
