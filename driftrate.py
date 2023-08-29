@@ -375,6 +375,7 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, center_f_err, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
+		p0=popt
 		if progress_cb:
 			progress_cb(prog/len(dmrange), f"{prog}/{len(dmrange)}")
 
