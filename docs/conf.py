@@ -9,6 +9,7 @@
 project = 'frbgui'
 copyright = '2023, Mohammed A. Chamma'
 author = 'Mohammed A. Chamma'
+version = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -31,4 +32,5 @@ html_context = {
 }
 
 html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static']
+html_static_path = []#['_staticx']
+
