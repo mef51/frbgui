@@ -1,35 +1,37 @@
-# Frbgui
+# FRBGui
 
-Frbgui is a graphical user interface for measuring spectro-temporal properties of Fast Radio Bursts from their waterfalls using 2D autocorrelations. It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement.
+FRBGui is a graphical user interface for measuring spectro-temporal properties of Fast Radio Bursts from their waterfalls using 2D autocorrelations. It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement.
 
-After measurement, Frbgui can be used to review and fix incorrect measurements by supplying initial guessues, producing an output pdf of all measurements and spreadsheets of measured values. Spreadsheets produced in this way can be loaded back into the Frbgui for further work or different sessions of measurements.
+After measurement, FRBGui can be used to review and fix incorrect measurements by supplying initial guessues, producing an output pdf of all measurements and spreadsheets of measured values. Spreadsheets produced in this way can be loaded back into the FRBGui for further work or different sessions of measurements.
 
 Measurements can be performed over a range of DMs and include the burst frequency, the sub-burst slope and/or drift rate, burst duration and burst bandwidth.
 
 Features include:
-* Changing the DM of a burst
-* Cropping waterfalls
-* RFI mitigation via background subtraction, SK-SG filter, manual channel zapping, and mask ranges
+* Change the DM of a burst
+* Crop waterfalls
+* Mitigate noise and RFI via background subtraction, SK-SG filter, manual channel zapping, and mask ranges
 * Import and export of noise masks
-* Measurements over user-defined ranges of DMs
-* Waterfall downsampling in frequency and time
-* User-defined splitting of bursts with arbitrary numbers of sub-burst components
-* User-defined inital fit guesses
-* Measurement review via the output table
+* Measure over user-defined ranges of DMs
+* Downsample aterfalls in frequency and time
+* Split bursts with arbitrary numbers of sub-burst components
+* Define inital fit guesses
+* Review Measurements via the output table
 * Correct individual fits by DM
 * Output measurements as a `csv` spreadsheet and/or PDF with plots of each waterfall with its measurements.
+* Provides `driftrate` and `driftlaw` python modules for scripting and automation.
 
-![Screenshot of Frbgui](imgs/screen1.JPG)
+
+![Screenshot of FRBGui](imgs/screen1.JPG)
 
 The GUI is extensible and pull requests are welcome.
 
 ## Status
 
-Currently Frbgui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). Frbgui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. Frbgui will run on most platforms but with varying performance.
+Currently FRBGui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). FRBGui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. FRBGui will run on most platforms but with varying performance.
 
 ## Installation
 
-Install Frbgui with
+Install FRBGui with
 
 ```pip install --user frbgui```
 
@@ -61,7 +63,7 @@ from frbgui import frbgui
 frbgui() # starts the GUI
 ```
 
-At the moment frbgui works best with burst waterfalls that are prepared as python `.npz` archives. The following snippet shows the format of the archive and an example of how a burst can be saved in the right format:
+At the moment FRBGui works best with burst waterfalls that are prepared as python `.npz` archives. The following snippet shows the format of the archive and an example of how a burst can be saved in the right format:
 ```python
 wfall = # 2D numpy array with shape (num freq channels, num time channels)
 burstmetadata = {
@@ -161,4 +163,4 @@ Special thanks to Dr. Sofia Sheikh for contributions to this table.
 
 ### Attributions
 
-<a href="https://www.flaticon.com/free-icons/meteor" title="meteor icons">Meteor icons created by Freepik - Flaticon</a>
+<a href="https://www.flaticon.com/free-icons/meteor" title="meteor icons">Meteor icon created by Freepik - Flaticon</a>

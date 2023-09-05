@@ -85,6 +85,8 @@ def error_log_cb(sender, data):
 	logwin.log_error(f"{sender}, {data}")
 
 def updatedata_cb(sender, data, udata):
+	if not data: data = {}
+	if not udata: udata = {}
 	wfall = None
 	if 'filename' in udata.keys(): # load burst from disk
 		filename = udata['filename']
@@ -425,7 +427,7 @@ def twidth_cb(_, data):
 		if dpg.does_item_exist('RegionSelector{}'.format(regid)):
 			maxval = wfall_cr.shape[1]*gdata['burstmeta']['tres']
 			dpg.configure_item('Region{}'.format(regid), max_value=maxval, speed=maxval*0.005)
-	plotdata_cb(_, None)
+	plotdata_cb(_, None, None)
 
 def pkidx_cb(_, data):
 	enabled = dpg.get_value('pkidxbool')
@@ -505,7 +507,7 @@ def importmask_cb(sender, data):
 		masks = np.load(filename, allow_pickle=True)[0]
 		if type(masks) == dict:
 			gdata['masks'].update(masks)
-			updatedata_cb(sender, {'filename': gdata['currfile']})
+			updatedata_cb(sender, {'filename': gdata['currfile']}, None)
 			masktable_cb(sender, None)
 		else:
 			error_log_cb(sender, 'invalid mask dictionary selected.')
@@ -517,7 +519,7 @@ def removemask_cb(sender, data, userdata):
 	if mask in gdata['masks'][gdata['currfile']]['chans']:
 		gdata['masks'][gdata['currfile']]['chans'].remove(mask)
 		logwin.log_debug('removing {} from {} mask'.format(mask, gdata['currfile']))
-		updatedata_cb(sender, {'keepview': True})
+		updatedata_cb(sender, {'keepview': True}, None)
 		masktable_cb(sender, None)
 
 def masktable_cb(sender, data):
@@ -561,7 +563,7 @@ def sksgmask_cb(sender, data):
 		savgol_sigma=sigma,
 	)
 	gdata['sksgmask'] = sksgmask
-	updatedata_cb(sender, {'keepview': True})
+	updatedata_cb(sender, {'keepview': True}, None)
 
 def resulttable_cb(sender, data, userdata):
 	displayresult_cb('User', data, {'trialDM': userdata})
@@ -608,7 +610,7 @@ def mousemask_cb(sender, data):
 		if mask not in gdata['masks'][gdata['currfile']]['chans']:
 			gdata['masks'][gdata['currfile']]['chans'].append(mask)
 
-		updatedata_cb(sender, {'keepview': True})
+		updatedata_cb(sender, {'keepview': True}, None)
 		masktable_cb(sender, None)
 		log_cb('mousemask_cb ', [[tchan, fchan], isOnWaterfall])
 	else:
@@ -1049,14 +1051,14 @@ def removemaskrange_cb(sender, data):
 	if rangeid in gdata['masks'][gdata['currfile']]['ranges']:
 		del gdata['masks'][gdata['currfile']]['ranges'][rangeid]
 	dpg.delete_item(f'MaskRange{rangeid}')
-	updatedata_cb(sender, {'keepview': True})
+	updatedata_cb(sender, {'keepview': True}, None)
 
 def maskrange_cb(sender, data):
 	rangeid = int(sender[-1])
 	*maskrange, _, _ = dpg.get_value(sender)
 	# print(gdata['masks'][gdata['currfile']], '\n----')
 	gdata['masks'][gdata['currfile']]['ranges'][rangeid] = maskrange
-	updatedata_cb(sender, {'keepview': True})
+	updatedata_cb(sender, {'keepview': True}, None)
 	# masktable_cb(sender, None)
 
 def regionSelector():
@@ -1085,7 +1087,8 @@ def regionSelector():
 		dpg.add_radio_button(tag='RegionType{}'.format(regid), items=["Background", "Burst"],
 			horizontal=True,
 			callback=drawregion_cb,
-			enabled=enabled
+			enabled=enabled,
+			default_value="Background"
 		)
 		dpg.add_button(tag='RemoveRegionBtn{}'.format(regid), label='X', enabled=enabled, callback=removeregion_cb)
 	gdata['multiburst']['numregions'] += 1
@@ -1109,15 +1112,15 @@ def getSubbursts(getsigmas=False):
 				region[i] = round(np.interp(edge, trange, [0, wfall_cr.shape[1]]))
 
 			regiontype =  dpg.get_value(typename)
-			if regiontype == 0:   # Background
+			if regiontype == "Background":
 				background = wfall_cr[:, region[0]:region[1]]
-			elif regiontype == 1: # Burst
+			elif regiontype == "Burst":
 				subburst = wfall_cr[:, region[0]:region[1]]
 				subbursts.append(subburst)
 
 	if background is None:
 		error_log_cb("getSubbursts", "Please specify a background region")
-		raise "Please specify a background region"
+		raise ValueError("Please specify a background region")
 
 	subburstsobj = {}
 	# pad with background
@@ -1166,7 +1169,7 @@ def dmchange_cb(sender, data):
 		dpg.configure_item('SaveDMButton',
 			enabled=bool(gdata['burstmeta']['DM'] != gdata['displayedDM']))
 
-	plotdata_cb(sender, None)
+	plotdata_cb(sender, None, None)
 
 def savedm_cb(sender, data):
 	newDM = round(dpg.get_value('DM'), 3)
