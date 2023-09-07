@@ -12,7 +12,7 @@ Features include:
 * Mitigate noise and RFI via background subtraction, SK-SG filter, manual channel zapping, and mask ranges
 * Import and export of noise masks
 * Measure over user-defined ranges of DMs
-* Downsample aterfalls in frequency and time
+* Downsample waterfalls in frequency and time
 * Split bursts with arbitrary numbers of sub-burst components
 * Define inital fit guesses
 * Review Measurements via the output table
@@ -68,7 +68,7 @@ At the moment FRBGui works best with burst waterfalls that are prepared as pytho
 wfall = # 2D numpy array with shape (num freq channels, num time channels)
 burstmetadata = {
     ### required fields:
-    'dfs'       : # array of frequency channels in MHz,
+    'dfs'       : # 1D array of frequency channels in MHz,
     'DM'        : # dispersion measure (DM) in pc/cm^3, float
     'bandwidth' : # bandwidth of `wfall` in MHz, float
     'duration'  : # duration of `wfall` in seconds, float

@@ -247,9 +247,9 @@ def updatedata_cb(sender, data, udata):
 			# set the elements based on gdata['regions']
 			for regid, name in enumerate(regions):
 				regid += 1 # off by one
-				regiontype = 0 if 'background' in name else 1 # 0 is background, 1 is burst
-				dpg.set_value('Region{}'.format(regid), regions[name])
-				dpg.set_value('RegionType{}'.format(regid), regiontype)
+				regiontype = "Background" if 'background' in name else "Burst" # matches UI elements
+				dpg.set_value(f'Region{regid}', regions[name])
+				dpg.set_value(f'RegionType{regid}', regiontype)
 				drawregion_cb([regid], None)
 
 	elif sender == 'subsample_cb' and udata['subsample']: # ie. sender == 'subsample_cb' dpg.get_value('DM')
@@ -391,9 +391,10 @@ def plotdata_cb(sender, data, userdata):
 	flatwfall = list(np.flipud(wfall_dd_cr).flatten())
 	if dpg.does_item_exist("Waterfall"):
 		dpg.delete_item('Waterfall')
+	before = "Region1Series" if dpg.does_item_exist("Region1Series") else 0
 	dpg.add_heat_series(flatwfall,
 		wfall_dd_cr.shape[0], wfall_dd_cr.shape[1],
-		tag="Waterfall", parent="freq_axis", scale_min=smin, scale_max=smax,
+		tag="Waterfall", parent="freq_axis", before=before, scale_min=smin, scale_max=smax,
 		bounds_min=(extents[0],extents[2]), bounds_max=(extents[1], extents[3]), format='')
 	for axis in ['time_axis', 'freq_axis']: dpg.fit_axis_data(axis)
 
@@ -566,7 +567,10 @@ def sksgmask_cb(sender, data):
 	updatedata_cb(sender, {'keepview': True}, None)
 
 def resulttable_cb(sender, data, userdata):
-	displayresult_cb('User', data, {'trialDM': userdata})
+	displayresult_cb('User', data, {
+		'burstname': userdata[0],
+		'trialDM': userdata[1]
+	})
 
 def updateResultTable(resultsdf):
 	if 'slope (mhz/ms)' in resultsdf.columns:
@@ -592,7 +596,7 @@ def updateResultTable(resultsdf):
 			with dpg.table_row():
 				# adding a component automatically moves to the next cell
 				dpg.add_selectable(label=burstname, height=20, span_columns=True,
-					callback=resulttable_cb, user_data=trialDM)
+					callback=resulttable_cb, user_data=(burstname, trialDM))
 				for col in columns[1:]:
 					dpg.add_text(f"{rowdata[col]}")
 
@@ -662,7 +666,7 @@ def getMeasurementInfo(wfall_cr):
 	cols = ['downf', 'downt', 'fchans', 'tchans', 'tsamp_width','subbg_start (ms)', 'subbg_end (ms)','sksigma','skwindow']
 	row = [downf, downt, fchans, tchans, tsamp_width, subbgstart, subbgend, sksigma, skwindow]
 
-	# TODO: region info, raw shape
+	# TODO: raw shape, mask info
 	regions = getAllRegions() # is empty when regions is disabled
 	for regname, region in regions.items():
 		if regname == 'background':
@@ -709,9 +713,9 @@ def slope_cb(sender, data, userdata):
 			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt,
 												  lowest_freq, corrsigma=corrsigma, wfallsigma=wfallsigma)
 			subresults.append(ret)
-			subdf = subdf.append(retdf)
+			subdf = pd.concat([subdf, retdf])
 
-		burstdf = burstdf.append(subdf)
+		burstdf = pd.concat([burstdf, subdf])
 
 	# Do a second pass using the best p0 just found
 	p0 = getOptimalFit(burstdf)
@@ -728,7 +732,7 @@ def slope_cb(sender, data, userdata):
 		gdata['resultsdf'] = burstdf
 	else:
 		# overwrite if there are already results while adding new results
-		gdata['resultsdf'] = (burstdf.append(gdata['resultsdf']) # add new and updated measurements
+		gdata['resultsdf'] = (pd.concat([burstdf, gdata['resultsdf']]) # add new and updated measurements
 									.reset_index().drop_duplicates(['name', 'DM']) # drop old measurements
 									.set_index('name').sort_values(['name', 'DM'])) # sort table
 	backupresults()
@@ -803,9 +807,9 @@ def getAllRegions():
 	suffixes = itertools.cycle(subburst_suffixes)
 	if gdata['multiburst']['enabled']:
 		for regid in range(1, gdata['multiburst']['numregions']):
-			region = dpg.get_value('Region{}'.format(regid))
+			region = dpg.get_value('Region{}'.format(regid))[:2]
 			regiontype = dpg.get_value('RegionType{}'.format(regid))
-			if regiontype == 1: # burst
+			if regiontype == "Burst":
 				suffix = next(suffixes)
 				ret[suffix] = region
 			else:
@@ -863,24 +867,24 @@ def displayresult_cb(sender, data, userdata):
 	burstDM = gdata['burstDM']
 	dmlist = list(gdata['burstdf'].loc[gdata['burstdf'].index[0]]['DM'])
 
+	if userdata is None:
+		userdata = {}
+		subname, dispdm = gdata['displayedBurst'], gdata['displayedDM']
+	else:
+		subname, dispdm = userdata['burstname'], userdata['trialDM']
+
 	burstname = dpg.get_value('burstname').replace(',', '')
-	subname = gdata['displayedBurst']
-	dispdm = gdata['displayedDM']
 	subburstdf = gdata['resultsdf'][gdata['resultsdf'].index.str.startswith(burstname)].reset_index()
 	resultidx = subburstdf[(subburstdf.name == subname) & (np.isclose(subburstdf.DM, dispdm))].index[0]
 	subburstdf = subburstdf.set_index('name')
 
-	if sender == 'User':
-		resultidx = dmlist.index(userdata['trialDM'])
-	elif sender == 'NextDM':
+	if sender == 'NextDM':
 		resultidx = resultidx + 1
 		if not (resultidx < len(subburstdf)):
 			resultidx = 0
 	elif sender == 'PrevDM':
 		resultidx = resultidx - 1
 
-	if userdata is None:
-		userdata = {}
 	userdata['resultidx'] = resultidx
 	subname = subburstdf.index[resultidx]
 	gdata['displayedDM'] = dmlist[resultidx % len(dmlist)]
@@ -1012,7 +1016,7 @@ colors = [
 	(0, 255, 255)
 ]
 def drawregion_cb(sender, _):
-	regid = sender[-1]
+	regid = str(sender[-1])
 	region = dpg.get_value('Region{}'.format(regid))
 	regiontype = dpg.get_value('RegionType{}'.format(regid))
 
@@ -1029,7 +1033,7 @@ def drawregion_cb(sender, _):
 					category=dpg.mvThemeCat_Plots)
 				dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 1.5,
 					category=dpg.mvThemeCat_Plots)
-		dpg.add_vline_series(region, tag=seriesname, parent=axis)
+		dpg.add_vline_series(region[:2], tag=seriesname, parent=axis)
 		dpg.bind_item_theme(seriesname, linetheme)
 
 def addMaskRange_cb(sender, rangeid):
@@ -1106,7 +1110,7 @@ def getSubbursts(getsigmas=False):
 			regionname = 'Region{}'.format(regid)
 			typename = 'RegionType{}'.format(regid)
 
-			region = dpg.get_value(regionname)
+			region = dpg.get_value(regionname)[:2]
 			trange = driftrate.getExtents(wfall_cr, df=df, dt=dt, lowest_freq=lowest_freq)[0][:2]
 			for i, edge in enumerate(region):
 				region[i] = round(np.interp(edge, trange, [0, wfall_cr.shape[1]]))
@@ -1198,6 +1202,7 @@ def frbgui(filefilter=gdata['globfilter'],
 		dmstep=0.1,
 		winwidth=1700,
 		winheight=850,
+		winpos=(0, 0)
 	):
 	global logwin, exportPDF
 	dpg.create_context()
@@ -1225,8 +1230,7 @@ def frbgui(filefilter=gdata['globfilter'],
 	####
 
 	dpg.create_viewport(title='frbgui', width=winwidth, height=winheight,
-						# x_pos=1600, y_pos=-550, # with two monitors
-						x_pos=0, y_pos=0, # one monitor
+						x_pos=winpos[0], y_pos=winpos[1],
 						small_icon='frbgui.ico', large_icon='frbgui.ico')
 	dpg.add_texture_registry(tag="TextureRegistry")
 	logwin = logger.mvLogger() # todo: replace with something more usable
