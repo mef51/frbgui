@@ -277,6 +277,9 @@ def updatedata_cb(sender, data, udata):
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
+	else:
+		subsample_cb(sender, 'stop') # updates gdata['wfall']
+		wfall = gdata['wfall']
 
 
 	gdata['wfall'] = wfall
@@ -402,7 +405,7 @@ def plotdata_cb(sender, data, userdata):
 	corr2dtexture, txwidth, txheight = getcorr2dtexture(corr, popt, p0, correxts, slope, clim=scmax)
 	if dpg.does_alias_exist('corr2dtexture'):
 		dpg.delete_item('Corr2d') # texture won't delete unless items using it are deleted too
-		time.sleep(0.017) # hack for strange race bug when deleting textures. wait one frame
+		time.sleep(2*0.017) # hack for strange race bug when deleting textures. wait two frames
 		dpg.delete_item('corr2dtexture')
 	dpg.add_static_texture(txwidth, txheight, corr2dtexture, tag='corr2dtexture', parent="TextureRegistry")
 	dpg.add_image_series("corr2dtexture", parent="freq_lag_axis",
@@ -459,7 +462,8 @@ def subsample_cb(sender, data):
 	else:
 		gdata['wfall'] = subfall
 		log_cb('subsample_cb', (numf, numt))
-		updatedata_cb('subsample_cb', data, {'subsample': True})
+		if data != 'stop':
+			updatedata_cb('subsample_cb', data, {'subsample': True})
 		return subfall
 
 def directory_cb(sender, data):
@@ -1071,28 +1075,32 @@ def regionSelector():
 	if 'wfall' in gdata:
 		maxval =  gdata['extents'][1]
 	else:
-		maxval = 100
+		maxval = 10
 
 	with dpg.group(tag='RegionSelector{}'.format(regid), horizontal=True, parent='SplittingSection',
 		before="AddRegionBtn"):
-		dpg.add_drag_floatx(tag='Region{}'.format(regid),
+		start = 0
+		if regid > 2: # use the end of the previous burst region as the start of the next
+			start = dpg.get_value(f'Region{regid-1}')[1]
+
+		dpg.add_drag_floatx(tag=f'Region{regid}',
 			size=2,
 			label='(ms)',
 			width=280,
 			enabled=enabled,
 			max_value=maxval,
 			speed=maxval*0.005,
-			default_value=[0, maxval],
+			default_value=[start, maxval],
 			callback=drawregion_cb
 		)
 		dpg.add_text(label="(?)", color=[150, 150, 150])
 		with dpg.tooltip(dpg.last_item()):
 			dpg.add_text("double click to edit")
-		dpg.add_radio_button(tag='RegionType{}'.format(regid), items=["Background", "Burst"],
+		dpg.add_radio_button(tag=f'RegionType{regid}', items=["Background", "Burst"],
 			horizontal=True,
 			callback=drawregion_cb,
 			enabled=enabled,
-			default_value="Background"
+			default_value="Background" if regid == 1 else "Burst"
 		)
 		dpg.add_button(tag='RemoveRegionBtn{}'.format(regid), label='X', enabled=enabled, callback=removeregion_cb)
 	gdata['multiburst']['numregions'] += 1
@@ -1313,7 +1321,7 @@ def frbgui(filefilter=gdata['globfilter'],
 
 			with dpg.tree_node(label='Masking', tag='Masking', default_open=True):
 				dpg.add_text("Click on the waterfall plot to begin masking frequency channels.")
-				dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
+				# dpg.add_text("NOTE: only mask on the original waterfall (todo: add a 'mask' button)")
 
 				with dpg.group(horizontal=True):
 					dpg.add_file_dialog(tag='maskdialog', show=False, callback=importmask_cb,

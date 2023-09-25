@@ -15,10 +15,11 @@ Features include:
 * Downsample waterfalls in frequency and time
 * Split bursts with arbitrary numbers of sub-burst components
 * Define inital fit guesses
-* Review Measurements via the output table
+* Review measurements via the output table
 * Correct individual fits by DM
 * Output measurements as a `csv` spreadsheet and/or PDF with plots of each waterfall with its measurements.
 * Provides `driftrate` and `driftlaw` python modules for scripting and automation.
+* Automatic backups of measurements as they are made
 
 
 ![Screenshot of FRBGui](imgs/screen1.JPG)

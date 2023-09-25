@@ -1,35 +1,40 @@
-.. frbgui documentation master file, created by
-   sphinx-quickstart on Thu Aug 31 14:25:43 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. This file is a bit of a hack to make the first TOC entry expandable.
+.. https://github.com/readthedocs/sphinx_rtd_theme/issues/445
 
-Welcome to frbgui's documentation!
-==================================
+FRBGui Documentation
+====================
 
-This site is under construction. Please read the project `README`_.
+Welcome to FRBGui's documentation. FRBGui is a graphical user interface for measuring spectro-temporal properties of `Fast Radio Bursts`_ (FRBs) from their waterfalls using 2D autocorrelation functions (ACF). It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement. FRBGui is built with the `Dear PyGui <https://github.com/hoffstadt/DearPyGui>`_ interface library.
 
+Please visit :ref:`Overview and Installation <overview>` to get started.
 
-.. _README: https://github.com/mef51/frbgui/blob/main/README.md
+.. _Fast Radio Bursts: https://en.wikipedia.org/wiki/Fast_radio_burst
+
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+	:maxdepth: 2
+	:caption: Introduction
 
-.. Overview
+	Overview & Installation <overview>
 
-.. Getting Started
+.. toctree::
+	:maxdepth: 2
+	:numbered:
+	:caption: Tutorials
 
-.. Example: Measurements of an FRB waterfall
+	tutorials/tut-preparing
+	tutorials/tut-measuring
 
-.. Scripting and Modules
-   driftrate.py
-   driftlaw.py
+.. toctree::
+	:maxdepth: 2
+	:caption: Documentation
 
-.. Output Table Reference
+	documentation/doc-scripting
 
-.. Indices and tables
-.. ==================
+.. toctree::
+	:maxdepth: 2
+	:caption: Reference
 
-.. * :ref:`genindex`
-.. * :ref:`modindex`
-.. * :ref:`search`
+	reference/ref-output
+	reference/ref-acfmethod
+

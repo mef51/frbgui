@@ -6,23 +6,29 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'frbgui'
+project = 'FRBGui'
 copyright = '2023, Mohammed A. Chamma'
 author = 'Mohammed A. Chamma'
-version = '1.0.0'
+version = '0.10.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []
+extensions = [
+    'sphinx_copybutton',
+    'sphinxnotes.strike',
+    'sphinx.ext.doctest',
+    'sphinx.ext.autodoc'
+]
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
-
-
+suppress_warnings = ['epub.unknown_project_files']
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
+html_favicon = '../frbgui.ico'
+html_logo = 'imgs/frbgui.png'
 html_context = {
     "display_github": True, # Integrate GitHub
     "github_user": "mef51", # Username
@@ -32,5 +38,10 @@ html_context = {
 }
 
 html_theme = 'sphinx_rtd_theme'
-html_static_path = []#['_staticx']
+html_theme_options = {
+    'sticky_navigation': True
+}
+html_static_path = ['_static']
+html_extra_path = ['tutorials/files']
+html_css_files = ['style.css']
 

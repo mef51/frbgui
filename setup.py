@@ -6,7 +6,7 @@ def readme():
 
 setuptools.setup(
 	name="frbgui",
-	version="1.0.0",
+	version="0.10.0",
 	author="Mohammed Chamma",
 	author_email="mchamma@uwo.ca",
 	description="GUI and utilities for processing Fast Radio Burst waterfalls",
@@ -16,13 +16,13 @@ setuptools.setup(
 	#packages=setuptools.find_packages(),
 	py_modules=['frbgui', 'driftrate', 'driftlaw'],
 	install_requires=[
-		'matplotlib==3.7.2',
-		'numpy==1.24.4',
-		'dearpygui==1.9.1',
-		'dearpygui_ext==0.9.5',
-		'your==0.6.7',
-		'pandas==2.1.0',
-		'tqdm==4.65.0'
+		'matplotlib>=3.7.2',
+		'numpy>=1.24.4',
+		'dearpygui>=1.9.1',
+		'dearpygui_ext>=0.9.5',
+		'your>=0.6.7',
+		'pandas>=2.1.0',
+		'tqdm>=4.65.0'
 	],
 	license='MIT',
 	classifiers=[
