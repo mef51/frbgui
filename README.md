@@ -92,6 +92,8 @@ Optional fields are used for display purposes and do not otherwise affect measur
 
 ## Documentation
 
+For complete documentation and tutorials please visit https://frbgui.readthedocs.io/en/latest/.
+
 ### Output CSVs
 
 `frbgui` outputs measurements as a spreadsheet along with a corresponding PDF that contains plots of each burst waterfall with its measurements overlaid.
