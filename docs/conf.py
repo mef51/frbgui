@@ -18,7 +18,8 @@ extensions = [
     'sphinx_copybutton',
     'sphinxnotes.strike',
     'sphinx.ext.doctest',
-    'sphinx.ext.autodoc'
+    'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon'
 ]
 
 templates_path = ['_templates']

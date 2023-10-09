@@ -8,6 +8,44 @@ import os
 from tqdm import tqdm
 
 def findCenter(burstwindow):
+	"""
+	Find the center *index* with uncertainties of the peak of the waterfall.
+	This is done by time averaging the waterfall to obtain a spectrum and then finding the average channel weighted by the square of the intensity.
+
+	This is calculated as
+
+	.. math::
+		\\bar{\\nu_i} = \\frac{\sum_{\\nu_i} \\nu_i I^2(\\nu_i)}{\sum_{\\nu_i} I^2(\\nu_i)}
+
+	The full uncertainty (after taking into account units and standard error propagation) is given by
+
+	.. math::
+		\delta \\bar{\\nu} = \sqrt{\\nu_{\\text{res}}^2/12 + 4\sigma_I^2\Big(\\nu_{\\text{res}}\\frac{\sum_{\\nu} (\\nu - \\bar{\\nu})I(\\nu) }{\sum_{\\nu} I^2(\\nu)}\Big)^2}
+
+	Args:
+		burstwindow (np.ndarray): 2d array of the waterfall
+
+	Returns:
+		tuple: (meanfreqi, errorsum) - tuple of the mean peak frequency index and summation term of the uncertainty.
+
+		You may then calculate the mean frequency in MHz with
+
+		.. code-block:: python
+
+			center_f = meanfreqi*fres_MHz + lowest_freq
+
+		The uncertainty on ``center_f`` is then
+
+		.. code-block:: python
+
+			center_f_err = np.sqrt(fres_MHz**2/12 + 4*wfallsigma**2*(errorsum*fres_MHz)**2)
+
+		``wfallsigma`` (:math:`\sigma_I`) is the standard deviation of the intensity noise. This can be sampled from the noise in the waterfall that doesn't include the burst. For example:
+
+		.. code-block:: python
+
+			wfallsigma = np.std( burstwindow[:, 0:burstwindow.shape[1]//20] )
+	"""
 	freqspectrum = burstwindow.sum(axis=1)[:, None]
 	freqi = np.indices(freqspectrum.shape)[0]
 	meanfreqi = np.nansum(freqi*(freqspectrum**2)) / np.nansum(freqspectrum**2)
@@ -44,8 +82,15 @@ def subtractbg(wfall, tleft: int=0, tright: int=1):
 
 def moments(data):
 	"""Returns (height, x, y, width_x, width_y)
-	the gaussian parameters of a 2D distribution by calculating its
-	moments """
+	initial gaussian parameters of a 2D distribution by calculating its
+	moments
+
+	Args:
+		data (np.ndarray): the data to compute moments of
+
+	Returns:
+		list: (height, x, y, sigma_x, sigma_y)
+	"""
 	total = data.sum()
 	X, Y = np.indices(data.shape) # this seems inconsistent with np.meshgrid
 	x = (X*data).sum()/total
@@ -60,6 +105,20 @@ def moments(data):
 	# return height, x, y, width_x, width_y, 2.0
 
 def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
+	"""2D rotatable Gaussian Model function. Used as the model function in scipy.optimize.curve_fit
+
+	Args:
+		point (tuple): (y, x) point to evaluate the model at
+		amplitude (float): amplitude of the 2D gaussian
+		xo (float): central x position of the gaussian
+		yo (float): central y position of the gaussian
+		sigma_x (float): standard deviation in x-direction
+		sigma_y (float): standard deviation in y-direction
+		theta (float): angle of gaussian
+
+	Returns:
+		list: 1d array of raveled 2d gaussian data
+	"""
 	y, x = point
 	xo = float(xo)
 	yo = float(yo)
@@ -70,6 +129,7 @@ def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
 	return g.ravel()
 
 def fitgaussiannlsq(data, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
+	""" Deprecated function. See :py:meth:`fitdatagaussianlsq`"""
 	# use curve-fit (non-linear leastsq)
 	x = range(0, data.shape[1]); y = range(0, data.shape[0])
 	x, y = np.meshgrid(x, y)
@@ -86,6 +146,21 @@ def getDataCoords(extents, shape):
 	return x, y
 
 def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
+	"""Fit 2d gaussian to data with the non-linear least squares algorithm implemented by `scipy.optimize.curve_fit <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_.
+
+	Uses the physical units as the data's coordinates.
+
+	Args:
+		data (np.ndarray): 2D array of the data to fit on
+		extents (tuple): Tuple of the initial time, final time, initial frequency, and final frequency (ti, tf, nu_i, nu_f). See :py:meth:`getExtents()`.
+		p0 (list, optional): initial guess to used, input as a list of floats corresponding to [amplitude, x0, y0, sigmax, sigmay, theta]. See :py:meth:`twoD_Gaussian`.
+		sigma (float, optional): uncertainty to use during fitting. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
+		bounds (tuple, optional): lower and upper bounds on parameters. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
+
+	Returns:
+		tuple: tuple of (popt, pcov) where popt is the list of gaussian parameters found and pcov is the covariance matrix.
+
+	"""
 	# use curve-fit (non-linear leastsq)
 	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
 	data = data / np.max(data) # normalize
@@ -122,15 +197,15 @@ def _dedisperse(wfall, dm, freq, dt):
 		Dedispersed dynamic spectra of shape (nchan, nsamp).
 
 	"""
-	k_dm = 1. / 2.41e-4
+	a_dm = 1. / 2.41e-4
 	dedisp = np.zeros_like(wfall)
 
 	ref_freq = freq[0]### ORIGINAL
 	# ref_freq = freq[-1]
 	# print("ref_freq", ref_freq)
 
-	shift = (k_dm * dm * (ref_freq ** -2 - freq ** -2) / dt) ### ORIGINAL (low freq anchor)
-	# shift = (k_dm * dm * (freq ** -2 - ref_freq ** -2) / dt)
+	shift = (a_dm * dm * (ref_freq ** -2 - freq ** -2) / dt) ### ORIGINAL (low freq anchor)
+	# shift = (a_dm * dm * (freq ** -2 - ref_freq ** -2) / dt)
 	shift = shift.round().astype(int)
 
 	for i, ts in enumerate(wfall):
@@ -138,18 +213,40 @@ def _dedisperse(wfall, dm, freq, dt):
 
 	return dedisp
 
-def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0):
+def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0, a_dm=4.14937759336e6):
+	"""Incoherently dedisperse a dynamic spectrum to the specified DM.
+
+	Computes the time delay at each frequency and correspondingly rolls the data
+
+	.. math::
+		\Delta t = - a\Big(\\frac{1}{\\nu^2_i} - \\frac{1}{\\nu^2_\\text{high}}\Big)\\text{DM}
+
+	By default uses the pulsar community dispersion constant of
+
+	:math:`a = 4.14937759336e6 \quad\\text{MHz}^2 \\text{cm}^3 \\text{pc}^-1 \\text{ms}`.
+
+	Args:
+		intensity (np.ndarray): the dynamic spectrum (or waterfall) to dedisperse. ``intensity[0]`` should correspond to the lowest frequency.
+		DM (float): the dispersion measure in pc/cm^3
+		nu_low (float): the frequency at the bottom of the band
+		df_mhz (float): the frequency resolution of the channels in MHZ
+		dt_ms (float): the time resolution of channels in ms
+		cshift (int, optional): additional horizontal shift to add after dedispersion in number of channels
+		a_dm (float): the dispersion constant to use when dedispersing. See units above.
+
+	Returns:
+		np.ndarray: the dedispersed 2d intensity array
+	"""
 	dedispersed = np.copy(intensity)
 
 	shifts = [0 for i in range(0, len(intensity))]
 	high_ref_freq = nu_low + len(dedispersed)*df_mhz
 	low_ref_freq  = nu_low
-	#k_dm = 4.1488064239e6 # kulkarni
-	k_dm = 4.14937759336e6 # pulsar community
+	#a_dm = 4.1488064239e6 # kulkarni
 	for i, row in enumerate(dedispersed): # i == 0 corresponds to bottom of the band
 		nu_i = nu_low + i*df_mhz
 		# High frequency anchor
-		deltat = - k_dm * (nu_i**-2 - high_ref_freq**-2) * DM
+		deltat = - a_dm * (nu_i**-2 - high_ref_freq**-2) * DM
 
 		# Low frequency anchor
 		#deltat = 4.14937759336e6 * (low_ref_freq**-2 - nu_i**-2) * DM
@@ -163,6 +260,19 @@ def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0):
 	return dedispersed
 
 def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0, lowest_time:float=0.0):
+	"""Given a waterfall's time and frequency resolutions, return the extents of the axes as well as the axes of its autocorrelation.
+
+	Convenience function for plt.imshow's extent keyword
+
+	Args:
+		wfall (np.ndarray): 2D array of the waterfall
+		df (float): frequency resolution
+		dt (float): time resolution
+		lowest_freq (float): lowest frequency in the band
+
+	Returns:
+		tuple: (extents, corrextents) where extents is a list of the waterfall extents and corrextents is a list of the corresponding autocorrelation extents
+	"""
 	extents = (lowest_time,
 			   lowest_time + dt*wfall.shape[1],
 			   lowest_freq,
@@ -173,6 +283,17 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0, lowest_
 	return extents, corrextents
 
 def cropwfall(wfall, twidth=150, pkidx=None):
+	"""
+	Crops a waterfall and attempts to center the burst in the array.
+
+	Args:
+		wfall (np.ndarray): the array to be cropped of size M x N
+		twidth (int): the number of channels on either side of the burst. Total width is therefore 2*twidth
+		pkidx (int, optional): the index of the waterfall to center. If None will use np.argmax of the timeseries as the index to center.
+
+	Returns:
+		np.ndarray: cropped waterfall of size M x (2*twidth)
+	"""
 	twidth = round(twidth)
 	if twidth <= 0 or twidth > wfall.shape[1]:
 		twidth = wfall.shape[1]
@@ -182,7 +303,7 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 		pkidx = np.nanargmax(ts)
 
 	# try making a window with pkidx in the middle, and shift if window is too large
-	# window will always be of width twidth
+	# window will always be of width 2*twidth
 	ledge, redge = pkidx-twidth, pkidx+twidth
 	if ledge < 0:
 		if redge + abs(ledge) <= wfall.shape[1]:
@@ -206,8 +327,14 @@ def updatenpz(npz, field, val):
 	np.savez(npz, **newdata)
 
 def autocorr2d(data):
+	"""Returns a 2D autocorrelation computed via an intermediate FFT
 
-	# Returns a 2D autocorrelation computed via an intermediate FFT
+	Args:
+		data (np.ndarray): 2D array of size MxN
+
+	Returns:
+		np.ndarray: 2D array of size 2M-1 x 2N-1. The autocorrelation of ``data``.
+	"""
 
 	# Number of data pts
 	nx, ny = data.shape[0], data.shape[1]
@@ -244,9 +371,30 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 				 corrsigma=None, wfallsigma=None,
 				 verbose=True, lowest_time=0):
 	"""
-	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to
-	find the drift and make a plot of the burst and fit.
-	returns drift, drift_error, popt, perr, theta,	red_chisq, center_f
+	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to perform spectro-temporal measurements of the burst
+
+	Can optionally plot the measurement.
+
+	Args:
+		burstwindow (np.ndarray):
+		fres_MHz (float):
+		tres_ms (float):
+		lowest_freq (float):
+		burstkey (int):
+		p0 (list):
+		popt_custom (list):
+		bounds (tuple):
+		nclip (float):
+		clip (float):
+		plot (bool):
+		corrsigma (float):
+		wfallsigma (float):
+		verbose (bool):
+		lowest_time (float):
+
+	Returns:
+		tuple: (slope, slope_error, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap)
+
 	"""
 
 	corr = autocorr2d(burstwindow)
@@ -383,6 +531,13 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 	return results, df
 
 def exportresults(results):
+	"""Creates a dataframe of measurement results.
+
+	See ``driftrate.columns``.
+
+	Args:
+		results (list): the results list
+	"""
 	df = pd.DataFrame(results, columns=columns)
 	df = df.set_index('name')
 	return df

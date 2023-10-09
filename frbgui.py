@@ -43,7 +43,7 @@ def getscale(m, M=-1): # used for dynamically rounding numbers for display
 	return ret
 
 def compressArr(arr):
-	""" adapted from https://www.geeksforgeeks.org/compress-the-array-into-ranges/ """
+	# adapted from https://www.geeksforgeeks.org/compress-the-array-into-ranges/
 	i, j, n = 0, 0, len(arr)
 	arr.sort()
 	while i < n:
@@ -647,7 +647,7 @@ def dmrange_cb(sender, data):
 	gdata['trialDMs'] = np.arange(dmrange[0], dmrange[1]+dmstep, step=dmstep)
 
 def getCurrentBurst():
-	""" Return the currently loaded waterfall at its burst DM """
+	# Return the currently loaded waterfall at its burst DM
 	burstname = dpg.get_value('burstname').replace(',', '')
 	df, dt = gdata['burstmeta']['fres'], gdata['burstmeta']['tres']
 	lowest_freq = min(gdata['burstmeta']['dfs']) # mhz
@@ -908,7 +908,7 @@ def confirmpopup(data, cb):
 		)
 
 def deleteresults_cb(sender, data):
-	""" TODO: implement """
+	# TODO: implement
 	burstname = dpg.get_value('burstname').replace(',', '')
 	if sender == 'ConfirmDelete':
 		if data == 'burst':
@@ -1204,7 +1204,6 @@ def savedm_cb(sender, data):
 def frbgui(filefilter=gdata['globfilter'],
 		datadir='',
 		maskfile=None,
-		regionfile=None,
 		dmrange=None,
 		numtrials=10,
 		dmstep=0.1,
@@ -1212,6 +1211,20 @@ def frbgui(filefilter=gdata['globfilter'],
 		winheight=850,
 		winpos=(0, 0)
 	):
+	"""
+	Start FRBGui window. Every option has a default so all parameters are optional.
+
+	Args:
+		filefilter (str): A glob pattern to filter for by default. e.g. '\*.npz'
+		datadir (str): path to the directory to start frbgui in
+		maskfile (str): if masks were exported previously, they can be loaded by default by adding a path to the mask file here
+		dmrange (tuple): a list or tuple of the default DM range to use (e.g. [555, 575])
+		numtrials (int): number of measurements to perform over dmrange
+		dmstep (float): size of DM step to use. Will overwrite numtrials
+		windiwdth (int): width in pixels of FRBGui window
+		winheight (int): height in pixels of FRBGui window
+		winpos (tuple): (x,y) coordinates on the screen of where to start FRBGui
+	"""
 	global logwin, exportPDF
 	dpg.create_context()
 
@@ -1534,8 +1547,11 @@ def main(): # windows cli
 
 if __name__ == '__main__':
 	frbgui(
-		datadir='/Users/mchamma/dev/SurveyFRB20121102A/data/scholz2016',
+		# datadir='/Users/mchamma/dev/SurveyFRB20121102A/data/scholz2016',
+		# datadir='/Users/mchamma/dev/SurveyFRB20121102A/data/gajjar2018',
+		datadir='/Users/mchamma/dev/SurveyFRB20121102A/data/aggarwal2021',
 		# maskfile='B:\\dev\\frbgui\\SurveyFRB20121102A\\aggarwalmasks_Jun17_2022.npy',
 		dmstep=0.5,
 		dmrange=[555, 575],
+		# winpos=(1600, -550) # with two monitors
 	)
