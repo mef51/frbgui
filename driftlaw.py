@@ -6,7 +6,18 @@ import scipy.odr
 import itertools, re
 
 def computeModelDetails(frame, channelSpaceDuration=False):
-	""" Takes a dataframe and computes columns related to the dynamical frb model """
+	""" Takes a dataframe and computes columns related to the triggered relativistic dynamical model from the 2d gaussian parameters found in the measurement stage.
+
+	Importantly, computes the sub-burst slope, duration, bandwidth, and uncertainties associated with these.
+
+	Can be run even if the columns this function computes already exist and can serve to recalculate or update computed values.
+
+	Args:
+		frame (pd.DataFrame): the results dataframe from FRBGui or :py:meth:`driftrate.processDMRange`
+
+	Returns:
+		pd.DataFrame: the dataframe with new computed columns
+	"""
 	frame = frame.copy()
 	tauwerror_expr = lambda r: 1e3*r['time_res (s)']*np.sqrt(r['max_sigma']**6*r['min_sigma_error']**2*np.cos(r['theta']-np.pi/2)**4 + r['angle_error']**2*r['max_sigma']**2*r['min_sigma']**2*(-r['max_sigma']**2 + r['min_sigma']**2)**2*np.cos(r['theta']-np.pi/2)**2*np.sin(r['theta']-np.pi/2)**2 + r['max_sigma_error']**2*r['min_sigma']**6*np.sin(r['theta']-np.pi/2)**4)/(r['max_sigma']**2*np.cos(r['theta']-np.pi/2)**2 + r['min_sigma']**2*np.sin(r['theta']-np.pi/2)**2)**1.5
 
@@ -226,6 +237,8 @@ def sloperanges(source):
 	"""
 	Given all burst and model data at different trial DMs,
 	computes the range of slopes durations across the range of trial DMs
+
+	Used as part of estimating uncertainties in :py:meth:`bakeMeasurements`.
 	"""
 
 	yaxis = 'slope_over_nuobs'
@@ -256,12 +269,59 @@ def sloperanges(source):
 def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 					 tagColors=['r', 'r', 'b', 'g', 'y', 'c', 'tomato', 'c'],
 					 showDMtraces=False):
-	"""
-	1. filter
-	2. color
-	3. tags data that is at the target dm and splits up measurements by dm
-	4. finds range of fits by source
-	5. do some extra computations (?)
+	""" Process completed measurements performed over a range of DMs for the purposes of analysing them in the context of the triggered relativistic dynamical model (TRDM).
+
+	Performs fits of the sub-burst slope law (i.e. slope = A/duration, A is a constant) by grouping measurements by DM. Provides detailed logging information.
+
+	The logging information of this function should be carefully reviewed to ensure the science and questions you are investigating are not being affected. Reviewing the information in this function should provide insight into how your bursts as a cohort are behaving as the DM changes.
+
+	The outputs (the "baked measurements") of this function are used to produce figures of spectro-temporal properties of the measurements and explore their relationships.
+
+	Specifically:
+
+	1. Filter measurements based on uncertainties and/or unphysical values. Measurements with uncertainty greater than 40% of the measurement value are discarded. Measurements with uncertainties greater than 10^8 are discarded. Measurements where the sub-burst slope is positive are discarded due to assumed over-dedispersion. Measurements with no valid fit (negative gaussian amplitude) are excluded.
+
+	2. Color data points based on spreadsheets.
+
+	3. Finds range of fits by source.
+
+	4. Tags data that is at the target DM and splits up measurements by DM. This can be then used to plot burst measurements at a "representative" DM.
+
+	5. Compute ranges of measurements and use these as conservative uncertainty bars on plots of bursts at their representative DM.
+
+	Example usage:
+	.. code-block:: python
+
+		bakeddata, fitdata, sources, extradata = driftlaw.bakeMeasurements(sources, names, exclusions, targetDMs, logging=False, tagColors=tagColors)
+
+	See `here <https://github.com/mef51/SurveyFRB20121102A/blob/master/code/PaperFigures.ipynb>`_ for a (nontrivial) usage example.
+
+	Args:
+		sources (list[pd.DataFrame]): list of DataFrames of frbgui results spreadsheets. Spreadsheets should be complete, that is, they are the output of :py:meth:`computeModelDetails`.
+		names (list[str]): list of names for each dataset listed in sources. used in figures. One name per data source.
+		exclusions (list[list[str]]): list of bursts to exclude by name. One list per data source.
+		targetDMs (list[float]): Representative DM to display each burst at. One per data source. After running this function once it is a good idea to run :py:meth:`getOptimalDMs` and use that list as your representative DMs. :py:meth:`getOptimalDMs` requires the baked data so cannot be run first.
+		logging (bool, optional): Set to False to disable logging. Do this after you've reviewed the logging output.
+		tagColors (list[str], optional): list of matplotlib colors for plotting purposes. One per data source
+		showDMtraces (bool, optional): if True will display plots of Slope vs. duration for each burst over the DM range. Useful for looking at the change in measurements as DM varies.
+
+	Returns:
+		tuple: (bakeddata, fitdata, sources, extradata).
+
+		* ``bakkeddata`` is an dictionary containing "frames", "labels", and "colors". Used in :py:meth:`plotSlopeVsDuration` to produce figures of measurements at a representative DM with uncertainties estimated from the DM range used.
+		* ``fitdata`` is a DataFrame of the fit results (i.e. fitting slope = A/duration) at each DM and is used by :py:meth:`getOptimalDMs`. It contains the following columns and information:
+
+		.. code-block:: python
+
+			'name': # source name
+			'DM': # DM fit was performed at
+			'param': # The fit parameter to the fit A/duration
+			'err': # the error on A ,
+			'red_chisq': # the reduced chisquared,
+			'numbursts': # the number of bursts used, after measurement exclusions
+
+		* ``sources`` is the updated list of dataframes after measurement exclusions.
+		* ``extradata`` Some extra information regarding the sub-burst slope vs frequency relationship.
 	"""
 	if not (len(sources) == len(names) == len(exclusions) == len(targetDMs)):
 		raise ValueError(
@@ -393,6 +453,21 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 	return bakeddata, fitdata, sources, extradata
 
 def getOptimalDMs(fitdata, log=False):
+	"""Using the fitdata found in :py:meth:`bakeMeasurements`, identify which DM results in the lowest reduced chi-squared when fitting the sub-burst slope law while using all the bursts.
+
+	Thus this method hypothesizes that the sub-burst slope law must hold and uses that to define an "optimal" DM.
+
+	Because some measurements are excluded, some DMs (usually on the higher end of the range) may lead to entirely excluding a burst from analysis. Here we choose to interpret this as the DM being too high and unphysical.
+
+	That is, in addition to having the best fit to the sub-burst slope law, the "optimal" DM is also defined to be the DM where all bursts in our sample have physically valid (under our assumptions) measurements.
+
+	Args:
+		fitdata (pd.Dataframe): Dataframe output from :py:meth:`bakeMeasurements`
+		log (bool, optional): if True, ouptut tables of the fitdata with their reduced chi-squareds and number of remaining bursts by DM. Can be used to manually pick an "optimal" DM.
+
+	Returns:
+		list: list of optimal DMs by source. Use this as the input to py:meth:`bakeMeasurements` to produce publication figures of your measurements at a representative DM that is the optimal DM as defined here.
+	"""
 	optimalDMs = []
 	for name in fitdata.name.unique():
 		df = fitdata.loc[(fitdata.name == name)].set_index('DM')
@@ -409,6 +484,46 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 						markers=['o', '^', 'v', 'd', 'p'], hidefit=[], hidefitlabel=False,
 						fitlines=['r-', 'b--', 'g-.'], fitextents=None, figsize=(17,9),
 						errorfunc=modelerror, fiterrorfunc=rangelog_error, dmtrace=False, ax=None):
+	""" Plot the normalized sub-burst slope vs. sub-burst duration for a list of baked measurements.
+
+	Finds a fit of the form
+
+	.. math::
+		\\frac{1}{\\nu} \Big|\\frac{d\\nu}{dt}\Big|  = \\frac{A}{t}
+
+	Bake your spectro-temporal measurements with :py:meth:`bakeMeasurements` first and use the outputs as the ``frames`` and ``labels`` parameters needed here.
+
+	Allows you to define how the uncertainties are calculated.
+
+	The following is an example of how to call this function using ``bakeddata``. In this example the uncertainties are estimated from the range of measurements obtained over the range of DMs that include all bursts after exclusions are performed.
+
+	.. code-block:: python
+
+		ax, _ = driftlaw.plotSlopeVsDuration(bakeddata['frames'], bakeddata['labels'], title="My Favorite Repeating FRB", logscale=True, errorfunc=driftlaw.limitedDMrangeerror, fiterrorfunc=driftlaw.log_error)
+
+	See `here <https://github.com/mef51/SurveyFRB20121102A/blob/master/code/PaperFigures.ipynb>`_ for a (nontrivial) usage example.
+
+	Args:
+		frames (list[pd.DataFrame]): list of dataframes of measurements. Produce this with :py:meth:`bakeMeasurements`
+		labels (list[str]): Labels to use on plot. One per source dataframe.
+		title (str, optional): title of plot
+		logscale (bool, optional): if True use a logscale
+		annotatei (int or list[int], optional): index or list of indices of ``frames``. Indices which frames' bursts you would like to see annotated. Useful for identifying outliers for further review.
+		markers (str or list[str], optional): matplotlib plot markers
+		hidefit (int or list[int], optional): index or indices of fits to hide. Starts from 0.
+		hidefitlabel (bool, optional): If True will not display a label in the legend of fits
+		fitlines (str or list[str], optional): matplotlib linestyles used for fits
+		fitextents (tuple, optional): (min duration, max duration) extents over which to display the fits
+		figsize (tuple, optional): matplotlib figure size (width, height)
+		errorfunc (function, optional): the function you want to evaluate your measurement uncertainties. Used as part of pd.scatter. If unsure, use :py:meth:`driftlaw.limitedDMrangeerror` or the default value.
+		fiterrorfunc (function, optional): function for evaluating fit uncertainties. If unsure use :py:meth:`driftlaw.log_error` or the default value.
+		dmtrace (bool, optional): if True create an additional plot of norm. slope vs. duration for each ``frame`` showing the trace of the point over the range of DMs used to measure.
+		ax (matplotlib.axes.Axes, optional): the axis to plot on.
+
+	Returns:
+		tuple: (ax, fits). ``ax`` is the figure axes and can be used to make additional modifications to the figure. ``fits`` is a list of [label, param, err, red_chisq, residuals, len(frame)].
+
+	"""
 	if len(frames) == 0:
 		return None, []
 	plt.rcParams["errorbar.capsize"] = 0

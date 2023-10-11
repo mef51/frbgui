@@ -54,10 +54,18 @@ def findCenter(burstwindow):
 
 def structureParameter(wfall, dt, tstart, tend):
 	"""
-	wip. see eq. 1 in gajjar et al. 2018
-	dt     - time resolution
-	tstart - chan #
-	tend   - chan #
+	wip. Compute the structure parameter of a burst.
+
+	See eq. 1 in gajjar et al. 2018
+
+	Args:
+		wfall (np.ndarray): burst waterfall
+		dt (float): time resolution
+		tstart (int): time channel to start at
+		tend (int): time channel to end at
+
+	Return:
+		float: the structure parameter
 	"""
 	n = (tend - tstart)
 	ts = np.nanmean(wfall, axis=0)
@@ -68,16 +76,51 @@ def structureParameter(wfall, dt, tstart, tend):
 	return struct/n
 
 def subband(wfall, nsub):
+	"""Downsample frequency channels of a waterfall.
+
+	See :py:meth:`subsample` for more general method.
+
+	Args:
+		wfall (np.ndarray): 2d array
+		nsub (int): number of channels. nsub should evenly divide ``wfall.shape[0]``
+
+	Returns:
+		np.ndarray: 2d subbanded array.
+	"""
 	nchan, nsamp = wfall.shape
 	sub_factor = nchan // nsub
 	return np.nanmean(wfall.reshape(-1, sub_factor, nsamp), axis=1)
 
 def subsample(m, nfreq, ntime):
-	""" m : 2x2 array """
+	"""Subsample a waterfall in time and frequency
+
+	Args:
+		m (np.ndarray): 2d array to subsample.
+		nfreq (int): the number of frequency channels desired. Should evenly divide ``m.shape[0]``
+		ntime (int): the number of time channels desired. Should evenly divide ``m.shape[1]``
+
+	Returns:
+		np.ndarray: the subsampled array
+	"""
 	n = np.nanmean(m.reshape(-1, m.shape[0]//nfreq, m.shape[1]), axis=1)
 	return np.nanmean(n.reshape(n.shape[0], -1, n.shape[1]//ntime), axis=2)
 
 def subtractbg(wfall, tleft: int=0, tright: int=1):
+	"""Subtract a background sample from a waterfall
+
+	This will compute the mean along the time axis to produce an array of noise as a function of frequency and subtract that array from the entire waterfall.
+
+	Avoid sampling the burst if possible to improve accuracy of measurements.
+
+	Args:
+		wfall (np.ndarray): 2d array of burst waterfall
+		tleft (int): time channel to start sample from
+		tright (int): time channel to end sample from
+
+	Returns:
+		np.ndarray: the waterfall subtracted by the background sample
+	"""
+
 	return wfall - wfall[:, tleft:tright].mean(axis=1)[:, None]
 
 def moments(data):
@@ -173,6 +216,17 @@ def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf))
 	return popt, pcov
 
 def makeDataFitmap(popt, corr, extents):
+	"""Make a fitmap using physical coordinates
+
+	Args:
+		popt (list): List of 2D gaussian model parameters. [amplitude, xo, yo, sigmax, sigmay, theta)]
+		corr (np.ndarray): the 2d autocorrelation. Can simply pass a 2d array of the same size
+		extents (list): Return value of :py:meth:`getExtents`
+
+	Returns:
+		np.ndarray: a 2d array of the 2d gaussian specified by popt
+
+	"""
 	x, y = getDataCoords(extents, corr.shape)
 	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
 	return fitmap
@@ -317,6 +371,17 @@ def cropwfall(wfall, twidth=150, pkidx=None):
 	return wfall[..., ledge:redge]
 
 def updatenpz(npz, field, val):
+	"""Update a field in a npz file and resave it.
+
+	Args:
+		npz (str): filename of .npz file
+		field (str): the field you would like to update
+		val (Any): the value to update the field to
+
+	Returns:
+		None
+
+	"""
 	data = np.load(npz)
 	newdata = {}
 	for key in data.files:
@@ -376,21 +441,21 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	Can optionally plot the measurement.
 
 	Args:
-		burstwindow (np.ndarray):
-		fres_MHz (float):
-		tres_ms (float):
-		lowest_freq (float):
-		burstkey (int):
-		p0 (list):
-		popt_custom (list):
-		bounds (tuple):
-		nclip (float):
-		clip (float):
-		plot (bool):
-		corrsigma (float):
-		wfallsigma (float):
-		verbose (bool):
-		lowest_time (float):
+		burstwindow (np.ndarray): 2d array of the burst waterfall
+		fres_MHz (float): frequency resolution in MHz
+		tres_ms (float): time resolution in ms
+		lowest_freq (float): lowest frequency in MHz
+		burstkey (int, optional): Burst number. Used in plot title
+		p0 (list, optional): Initial 2d gaussian guess to use. [amplitude, x0, y0, sigmax, sigmay, theta]
+		popt_custom (list, optional): Override the fit and plot your own 2D gaussian by placing your popt list here
+		bounds (tuple, optional): parameter bounds. See :py:meth:`fitdatagaussianlsq`
+		nclip (float, optional): minimum clip value of autocorrelation. Applied before fitting.
+		clip (float, optional): maximum clip value of autocorrelation. Applied before fitting.
+		plot (bool, optional): If true will display a diagnostic plot of the fit
+		corrsigma (float, optional): Standard deviation of noise of autocorrelation. Used when fitting.
+		wfallsigma (float, optional): Standard deviation of noise of waterfall. Used when fitting.
+		verbose (bool, optional): Set to false to limit console output
+		lowest_time (float, optional): starting time (ms) of waterfall. Default 0.
 
 	Returns:
 		tuple: (slope, slope_error, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap)
@@ -475,6 +540,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	)
 
 def makeFitmap(popt, corr):
+	"""Deprecated function. See :py:meth:`makeDataFitmap`"""
 	x, y = np.meshgrid(range(0, corr.shape[1]), range(0, corr.shape[0]))
 	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
 	return fitmap
@@ -508,6 +574,29 @@ columns = [
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
 				   corrsigma=None, wfallsigma=None, tqdmout=None, progress_cb=None, lowest_time=0):
+	"""Process burst measurements over a range of DMs.
+
+	Dedisperses to each DM in ``dmrange`` and calls :py:meth:`processBurst` on the resulting waterfall. Returns a list of all measurements as well as a dataframe. Columns of the dataframe are given by ``driftrate.columns``
+
+	Args:
+		burstname (str): name of burst to use in results dataframe
+		wfall (np.ndarray): 2d array of burst waterfall
+		burstdm (float): the DM of the burst in ``wfall``
+		dmrange (list[float]): a list of the DMs you would measurements at
+		fres_MHz (float): frequency resolution in MHz
+		tres_ms (float): time resolution in milliseconds
+		lowest_freq (float): lowest frequency of the waterfall
+		p0 (list, optional): optionally provide an initial guess for the 2d gaussian fit with list of [amplitude, x0, y0, sigmax, sigmay, theta]
+		corrsigma (float, optional): standard deviation of the burst's autocorrelation
+		wfallsigma (float, optional): standard deviation of the burst waterfall
+		tqdmout (object, optional): output for TQDM's progress bar
+		progress_cb (function, optional): callback to run after each DM is processed. Called with ( #of DMs processed) / len(dmrange) and a string of "{#}/{len(dmrange)}"
+		lowest_time (float, optional): the starting time of the waterfall, passed to :py:meth:`processBurst`.
+
+	Returns:
+		tuple: (list of measurement results, dataframe of measurement results)
+
+	"""
 	results = []
 	prog = 0
 	for trialDM in tqdm(dmrange, file=tqdmout):
@@ -543,15 +632,20 @@ def exportresults(results):
 	return df
 
 def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4, twidth=150):
-	"""
-	Plot bursts and their autocorrelations in a stampcard
-	Optionally do the processing to find the slope and plot the resulting fit as well
+	"""	Plot bursts and their autocorrelations in a stampcard
 
-	loadfunc: a function(filename) that loads the waterfall and returns (subfall, pkidx, wfall)
-		where `wfall` is the loaded waterfall,
-		`subfall` is the subbanded waterfall that you want to see,
-		and `pkidx` is the index in the timeseries of the data with peak intensity
-		See `frbprepeaters.loadpsrfits` for an example
+	Optionally do custom processing to find the slope and plot the resulting fit as well.
+
+	Args:
+		loadfunc (function): a function that accepts "filename" to a waterfall as an argument and loads the waterfall and returns (subfall, pkidx, wfall) where ``wfall`` is the loaded waterfall, ``subfall`` is the subbanded waterfall that you want to see, and ``pkidx`` is the index in the timeseries of the data with peak intensity. Implement this yourself to load your data files
+		fileglob (str): a glob that matches on your data files (e.g. "\*.npy")
+		figsize (tuple[float]): Tuple of (width, height) for the resulting figure
+		nrows (int): number of rows in the stampcard
+		ncols (int): number of columns in the stampcard
+		twidth (int): number of channels on either side of the burst to plot
+
+	Returns:
+		None: shows a figure. Useful in jupyterlab for example.
 	"""
 	numfiles = len(glob.glob(fileglob))
 	if nrows*ncols != 2*numfiles: # ensure there is enough room for the subplots
@@ -610,6 +704,30 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 
 subburst_suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']
 def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
+	"""Split a waterfall into regions.
+
+	Specify regions with a dictionary. For example
+
+	.. code-block:: python
+
+		regions = {"a": [0, 3], "b": [3, 5.5]}
+
+	where the arrays are the timestamps in milliseconds.
+
+	Regions should be named as "a", "b", "c", etc. See ``driftrate.subburst_suffixes``.
+
+	Meant for use by frbgui.
+
+	Args:
+		wfall_cr (np.ndarray): waterfall to split
+		df (float): frequency resolution
+		dt(float): time resolution
+		lowest_freq (float): lowest frequency
+		regions (dict): Dictionary of {"a": [start_ms, end_ms], etc..}
+
+	Returns:
+		dict: A dictionary of cropped waterfalls. Follows {"a": np.ndarray}
+	"""
 	background = None
 	subbursts  = []
 	for regname, region in regions.items():
@@ -636,6 +754,11 @@ def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 	return subburstsobj
 
 def readRegions(resultsdf):
+	"""Parse regions out of a results csv produced by FRBGui
+
+	Args:
+		resultsdf (pd.DataFrame): dataframe of results. Can load with ``pd.read_csv(filename).set_index('name')``
+	"""
 	if 'background' not in resultsdf.columns:
 		return {}
 	regionsdf = resultsdf.loc[~np.isnan(resultsdf['background'])]
@@ -653,10 +776,21 @@ def readRegions(resultsdf):
 
 def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20,
 				snrLines=False, show=False):
-	"""
-	Similar to plotStampcard but reads all data from the results csv produced by the gui
+	"""Given a results CSV produced by FRBGui will plot fit results by burst at each DM in a stampcard and save a PDF with the same name.
 
-	Plots fit results by burst at each DM
+	Args:
+		resultsfile (str): Filename of CSV file
+		datafiles (list[str]): list of burst filenames in FRBGui's .npz :ref:`burstformat`
+		masks (str): filename to FRBGui maskfile
+		figsize (tuple(float)): (width, height) of figure
+		nrows (int): number of rows in stampcard
+		ncols (int): number of cols in stampcard
+		clip (int): factor to clip the color scale of the autocorrelation figure for improving display SNR
+		snrLines (bool): If true plots 1 sigma lines around the autocorrelation
+		show (bool): Show the figure in a window if true. Displays a pdf otherwise.
+
+	Returns:
+		bool: True if completed. Saves a PDF file when completed.
 	"""
 	resultsdf = pd.read_csv(resultsfile).set_index('name')
 	plt.figure(figsize=figsize)
