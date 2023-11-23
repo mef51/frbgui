@@ -108,7 +108,8 @@ def subsample(m, nfreq, ntime):
 def subtractbg(wfall, tleft: int=0, tright: int=1):
 	"""Subtract a background sample from a waterfall
 
-	This will compute the mean along the time axis to produce an array of noise as a function of frequency and subtract that array from the entire waterfall.
+	This will compute the mean along the time axis to produce an array of noise as a
+	function of frequency and subtract that array from the entire waterfall.
 
 	Avoid sampling the burst if possible to improve accuracy of measurements.
 
@@ -329,8 +330,8 @@ def getExtents(wfall, df:float=1.0, dt:float=1.0, lowest_freq:float=1.0, lowest_
 	"""
 	extents = (lowest_time,
 			   lowest_time + dt*wfall.shape[1],
-			   lowest_freq,
-			   lowest_freq + df*wfall.shape[0])
+			   lowest_freq - df/2,
+			   lowest_freq + df*wfall.shape[0] + df/2)
 
 	# corrextents = (-extents[1], extents[1], -(extents[3]-extents[2]), (extents[3]-extents[2]))
 	corrextents = (-(extents[1]-extents[0]), (extents[1]-extents[0]), -(extents[3]-extents[2]), (extents[3]-extents[2]))

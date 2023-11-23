@@ -273,7 +273,7 @@ def updatedata_cb(sender, data, udata):
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 		if dpg.get_value('EnableSubBGBox'):
 			tleft, tright, _, _ = dpg.get_value('SubtractBGRegion')
-			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
+			timerange = [gdata['extents'][0], gdata['extents'][1]]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
@@ -452,7 +452,7 @@ def subsample_cb(sender, data):
 		wfall = applyMasks(np.copy(gdata['wfall_original']))
 		if dpg.get_value('EnableSubBGBox'):
 			tleft, tright, _, _ = dpg.get_value('SubtractBGRegion')
-			timerange = [round(gdata['extents'][0]), round(gdata['extents'][1])]
+			timerange = [gdata['extents'][0], gdata['extents'][1]]
 			tleft  = round(np.interp(tleft, timerange, [0, wfall.shape[1]]))
 			tright = round(np.interp(tright, timerange, [0, wfall.shape[1]]))
 			wfall = driftrate.subtractbg(wfall, tleft, tright)
@@ -611,7 +611,7 @@ def mousemask_cb(sender, data):
 		rawmask = round(fchan)
 
 		# map frequency (rawmask) to channel number
-		spectralrange = [round(gdata['extents'][2]), round(gdata['extents'][3])]
+		spectralrange = [gdata['extents'][2], gdata['extents'][3]]
 		mask = np.interp(rawmask, spectralrange, [0, gdata['wfall_original'].shape[0]])
 		mask = int(mask)
 
