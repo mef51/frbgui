@@ -19,9 +19,9 @@ These can be accessed with
 ``frbgui`` module
 -----------------
 
-the ``frbgui`` function itself has multiple options that can be used to configure the startup of FRBGui
+The ``frbgui`` function itself has multiple options that can be used to configure the startup of FRBGui
 
-As stated in the Overvew, FRBGui can be called from a script like so:
+As stated in the Overview, FRBGui can be called from a script like so:
 
 .. code-block:: python
 	:linenos:

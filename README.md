@@ -36,6 +36,14 @@ Install FRBGui with
 
 ```pip install --user frbgui```
 
+For a local, editable installation with bleeding edge updates you may clone the repo and install locally:
+
+```bash
+    git clone https://github.com/mef51/frbgui.git
+    cd frbgui
+    pip install --user --editable .
+```
+
 ## Acknowledgements
 
 If used in an academic study please cite
