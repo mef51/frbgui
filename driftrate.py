@@ -392,11 +392,12 @@ def updatenpz(npz, field, val):
 			newdata[key] = data[key]
 	np.savez(npz, **newdata)
 
-def autocorr2d(data):
+def autocorr2d(data, maskcorrpeak=True):
 	"""Returns a 2D autocorrelation computed via an intermediate FFT
 
 	Args:
 		data (np.ndarray): 2D array of size MxN
+		maskcorrpeak (bool, optional): Set to False to keep the zero lag peak
 
 	Returns:
 		np.ndarray: 2D array of size 2M-1 x 2N-1. The autocorrelation of ``data``.
@@ -430,11 +431,25 @@ def autocorr2d(data):
 	temp_array_b[:,0:ny] = temp_array_a[:,ny-1:2*ny-1]
 	temp_array_b[:,ny:2*ny-1] = temp_array_a[:,0:ny-1]
 
-	return temp_array_b[:-1,:-1]#/float(nx*ny)
+	corr = temp_array_b[:-1,:-1]#/float(nx*ny)
+	if maskcorrpeak:
+		ind = np.unravel_index(np.argmax(corr), corr.shape)
+		if corr[ind] == np.max(corr): # double check
+			corr[ind] = 0
+
+	return corr
+
+def _fakeburst(shape, popt, noisefrac=0.2):
+	x, y = getDataCoords([0, shape[0], 0, shape[1]], shape)
+	wfall = twoD_Gaussian((y, x), *popt).reshape(shape[0], shape[1])
+	wfall += noisefrac*np.random.random(wfall.shape)
+	wfall = subtractbg(wfall, 0, 0.25*shape[1])
+	corr = autocorr2d(wfall)
+	return wfall, corr
 
 def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
 				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
-				 corrsigma=None, wfallsigma=None,
+				 corrsigma=None, wfallsigma=None, maskcorrpeak=True,
 				 verbose=True, lowest_time=0):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to perform spectro-temporal measurements of the burst
@@ -455,7 +470,8 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		plot (bool, optional): If true will display a diagnostic plot of the fit
 		corrsigma (float, optional): Standard deviation of noise of autocorrelation. Used when fitting.
 		wfallsigma (float, optional): Standard deviation of noise of waterfall. Used when fitting.
-		verbose (bool, optional): Set to false to limit console output
+		verbose (bool, optional): Set to False to limit console output
+		maskcorrpeak (bool, optional): Set to False to keep the zero lag correlation peak
 		lowest_time (float, optional): starting time (ms) of waterfall. Default 0.
 
 	Returns:
@@ -463,7 +479,7 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 
 	"""
 
-	corr = autocorr2d(burstwindow)
+	corr = autocorr2d(burstwindow, maskcorrpeak=maskcorrpeak)
 	_, corrextents = getExtents(burstwindow,
 									  df=fres_MHz, dt=tres_ms, lowest_freq=lowest_freq,
 									  lowest_time=lowest_time)
@@ -692,7 +708,7 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 
 		plt.subplot(nrows, ncols, next(ploti))
 		plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray', extent=corrextents)
-		plt.clim(0, np.max(corr)/20)
+		plt.clim(0, np.max(corr))
 		plt.title(f'Corr #{burstnum}')
 		plt.xlabel('time lag (arb)'), plt.ylabel('freq lag (arb)')
 		if obsdata and popt[0] > 0:
@@ -775,7 +791,7 @@ def readRegions(resultsdf):
 			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
 	return regionsobj
 
-def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=20,
+def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=1,
 				snrLines=False, show=False):
 	"""Given a results CSV produced by FRBGui will plot fit results by burst at each DM in a stampcard and save a PDF with the same name.
 
@@ -870,6 +886,8 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 
 		currentplot = next(ploti)
 		bname = name if not regions else subname
+		if len(bname) > 15: # limit num characters
+			bname = '[...]'+bname[-15:]
 		aspect = 'auto'
 
 		plt.subplot(nrows, ncols, currentplot)
@@ -973,7 +991,7 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 	plt.imshow(corr, interpolation='none', aspect=aspect, cmap='gray', extent=corrextents, origin='lower')
 	plt.xlabel("Time Shift (ms)")
 	plt.ylabel("Frequency Shift (MHz)")
-	plt.clim(0, np.max(corr)/20)
+	plt.clim(0, np.max(corr)/1)
 
 	if popt[0] > 0:
 		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents,

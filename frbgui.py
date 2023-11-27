@@ -295,7 +295,7 @@ def getcorr2dtexture(corr, popt=None, p0=None, extents=None, slope=None, clim=No
 
 	plt.imshow(corr, origin='lower', interpolation='none', aspect='auto', cmap='gray',
 				extent=extents)
-	plt.clim(0, np.max(corr)/20)
+	plt.clim(0, np.max(corr))
 	if clim and clim > 0:
 		plt.clim(0, clim)
 	if popt is not None and popt[0] > 0:
@@ -383,7 +383,7 @@ def plotdata_cb(sender, data, userdata):
 							format='%.{}f'.format(getscale(mmincorr, mmaxcorr)+1))
 
 	smin, smax = mostmin, mostmax
-	scmin, scmax = mmincorr, mmaxcorr/20
+	scmin, scmax = mmincorr, mmaxcorr
 	if sender == 'wfallscale':
 		smin, smax = dpg.get_value('wfallscale')[:2]
 	if sender == 'corrscale':
@@ -830,6 +830,8 @@ def loadresults_cb(sender, data):
 	gdata['resultsdf'] = resultsdf
 	regionsobj = driftrate.readRegions(resultsdf)
 	gdata['multiburst']['regions'] = regionsobj
+	s = data['file_path_name'] # extract prefix from loaded file
+	dpg.set_value('ExportPrefix', s[:s.index(s.split('_')[-2])-1].split('/')[-1])
 	burstselect_cb(sender, data)
 
 def exportresults_cb(sender, data):
