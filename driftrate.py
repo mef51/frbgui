@@ -793,7 +793,8 @@ def readRegions(resultsdf):
 
 def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=1,
 				snrLines=False, show=False):
-	"""Given a results CSV produced by FRBGui will plot fit results by burst at each DM in a stampcard and save a PDF with the same name.
+	"""Given a results CSV produced by FRBGui will plot fit results by burst at each DM
+	in a stampcard and save a PDF with the same name.
 
 	Args:
 		resultsfile (str): Filename of CSV file
@@ -839,7 +840,7 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 		else:
 			regions = None
 
-		file = [f for f in datafiles if name in f][0]
+		file = [f for f in datafiles if name in os.path.basename(f)][0]
 		data = np.load(file, allow_pickle=True)
 
 		wfall = data['wfall']

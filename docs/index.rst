@@ -6,7 +6,7 @@ FRBGui Documentation
 
 Welcome to FRBGui's documentation. FRBGui is a graphical user interface for measuring spectro-temporal properties of `Fast Radio Bursts`_ (FRBs) from their waterfalls using 2D autocorrelation functions (ACF). It can be used to split bursts with multiple components, change the dispersion measure (DM), add noise filters, and other preparation tasks before measurement. FRBGui is built with the `Dear PyGui <https://github.com/hoffstadt/DearPyGui>`_ interface library.
 
-Click `here for a demo <https://www.youtube.com/watch?v=a5db2Ed7SFE>`_ of FRBGui.
+Click `here for a video demo <https://www.youtube.com/watch?v=a5db2Ed7SFE>`_ of FRBGui.
 
 Please visit :ref:`Overview and Installation <overview>` to get started.
 

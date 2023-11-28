@@ -21,7 +21,7 @@ Features include:
 * Provides `driftrate` and `driftlaw` python modules for scripting and automation.
 * Automatic backups of measurements as they are made
 
-Click [here for a demo](https://www.youtube.com/watch?v=a5db2Ed7SFE) of FRBGui
+Click [here for a video demo](https://www.youtube.com/watch?v=a5db2Ed7SFE) of FRBGui
 
 ![Screenshot of FRBGui](imgs/screen1.JPG)
 

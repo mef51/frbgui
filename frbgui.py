@@ -99,6 +99,7 @@ def updatedata_cb(sender, data, udata):
 
 		if type(loaded) == np.ndarray:
 			wfall = loaded.astype(np.float64)
+			wfall = np.nan_to_num(wfall) # automatically convert nan mask to 0s
 		elif type(loaded) == np.lib.npyio.NpzFile:
 			wfall = loaded['wfall'].astype(np.float64)
 			storedshape = wfall.shape
