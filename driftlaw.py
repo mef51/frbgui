@@ -24,7 +24,8 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 	frame['slope_abs'] = -1*(frame['slope (mhz/ms)']) # multiply be negative 1 because of later measurement exclusions
 	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
 	frame['slope_over_nuobs_err'] = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
-	frame['recip_slope_over_nuobs'] = 1/frame['slope_over_nuobs']
+	frame['recip_slope_over_nuobs'] = frame['center_f'] / np.tan(frame['theta']) # ms/MHz
+	frame['recip_norm_slope_err'] = frame['center_f']*(frame['angle_error'] * (1/np.sin(frame['theta']))**2)
 	frame['slope_abs_nuobssq'] = frame['slope_abs']/frame['center_f']**2/1000 # unitless
 	frame['min_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: min(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
 	frame['max_sigma'] = frame[['sigmax','sigmay']].apply(lambda row: max(abs(row['sigmax']), abs(row['sigmay'])), axis=1)
@@ -201,6 +202,11 @@ def limitedDMrangeerror(frame):
 	ey = [np.array([frame['slope_over_nuobs'] - frame['lim_slope_nu_min'], frame['lim_slope_nu_max'] - frame['slope_over_nuobs']])]
 	return ex, ey
 
+def limitedDMrangeerror_recip(frame):
+	ex = [np.array([frame['tau_w_ms'] - frame['lim_tw_min'], frame['lim_tw_max'] - frame['tau_w_ms']])]
+	ey = [np.array([np.abs(frame['recip_slope_over_nuobs'] - frame['lim_recip_max']), np.abs(frame['lim_recip_max'] - frame['recip_slope_over_nuobs'])])]
+	return ex, ey
+
 def limitedDMsloperanges(fitdf, source, threshold=0):
 	""" Like `sloperanges` but only for DMs where all the bursts in a sample have valid measurements """
 	dms = fitdf.loc[fitdf.numbursts == fitdf.numbursts.max()].index
@@ -212,15 +218,18 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 	yaxis = 'slope_over_nuobs'
 	xaxis = 'tau_w_ms'
 	baxis = 'bandwidth (mhz)'
+	raxis = 'recip_slope_over_nuobs'
 	for burst in source.index.unique():
 		burstdf = source.loc[burst] # s/source/source_lim
 		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
 		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
 		ebandwidth   = np.sqrt(burstdf['red_chisq'])*burstdf['max_sigma_error'] # ignores angle error, which should be small
+		erecipslope  = np.sqrt(burstdf['red_chisq'])*burstdf['recip_norm_slope_err']
 
 		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
 		bmax, bmin = np.max(burstdf[baxis] + ebandwidth) , np.min(burstdf[baxis] - ebandwidth)
+		rmax, rmin = np.max(burstdf[raxis] + erecipslope) , np.min(burstdf[raxis] - erecipslope)
 
 		source.loc[burst, 'lim_slope_nu_max'] = dmax
 		source.loc[burst, 'lim_slope_nu_min'] = dmin
@@ -230,6 +239,8 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 		source.loc[burst, 'lim_tw_min']    = tmin
 		source.loc[burst, 'lim_band_max']  = bmax
 		source.loc[burst, 'lim_band_min']  = bmin
+		source.loc[burst, 'lim_recip_max'] = rmax
+		source.loc[burst, 'lim_recip_min'] = rmin
 
 	return source
 
@@ -268,7 +279,7 @@ def sloperanges(source):
 
 def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 					 tagColors=['r', 'r', 'b', 'g', 'y', 'c', 'tomato', 'c'],
-					 showDMtraces=False):
+					 showDMtraces=False, exclude_set=None):
 	""" Process completed measurements performed over a range of DMs for the purposes of analysing them in the context of the triggered relativistic dynamical model (TRDM).
 
 	Performs fits of the sub-burst slope law (i.e. slope = A/duration, A is a constant) by grouping measurements by DM. Provides detailed logging information.
@@ -370,26 +381,35 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 
 		## Burst Exclusions
 		# exclude bursts that where a fit was not found
-		exclusionLogger('> exclusion rule: no fit found', source[~(source.amplitude > 0)])
-		source = source[source.amplitude > 0]
+		skip_exclusions = False
+		if type(exclude_set) == list:
+			skip_exclusions = (name in exclude_set)
+		elif type(exclude_set) == str:
+			skip_exclusions = (name == exclude_set)
 
-		# exclude positive drifts, we assume they are non-physical and an artifact of over dedispersion
-		exclusionLogger('> exclusion rule: slope_abs < 0', source[~(source.slope_abs > 0)])
-		source = source[source.slope_abs > 0]
+		if not skip_exclusions:
+			exclusionLogger('> exclusion rule: no fit found', source[~(source.amplitude > 0)])
+			source = source[source.amplitude > 0]
 
-		# exclude slopes with large relative errors
-		relerrthreshold = 0.4 # (40%)
-		exclusionLogger(f'> exclusion rule: rel slope error > {relerrthreshold}', source[~(abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold)])
-		source = source[abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold]
+			# exclude positive drifts, we assume they are non-physical and an artifact of over dedispersion
+			exclusionLogger('> exclusion rule: slope_abs < 0', source[~(source.slope_abs > 0)])
+			source = source[source.slope_abs > 0]
 
-		# exclude slopes with huge errors, they are vertical and poorly measured
-		errorthreshold = 1e8
-		exclusionLogger('> exclusion rule: slope error > {}'.format(errorthreshold), source[~(source['slope error (mhz/ms)'] < errorthreshold)])
-		source = source[source['slope error (mhz/ms)'] < errorthreshold]
+			# exclude slopes with large relative errors
+			relerrthreshold = 0.4 # (40%)
+			exclusionLogger(f'> exclusion rule: rel slope error > {relerrthreshold}', source[~(abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold)])
+			source = source[abs(source['slope error (mhz/ms)']/source['slope (mhz/ms)']) < relerrthreshold]
 
-		# exclude slope ranges that flip signs over the dm range (this is analgous to the large error exclusion)
-		exclusionLogger('> exclusion rule: negative slope ranges', source[~(source['slope_over_nuobs'] > source['slope_over_nuobs_err'])])
-		source = source[source['slope_over_nuobs'] > source['slope_over_nuobs_err']]
+			# exclude slopes with huge errors, they are vertical and poorly measured
+			errorthreshold = 1e8
+			exclusionLogger('> exclusion rule: slope error > {}'.format(errorthreshold), source[~(source['slope error (mhz/ms)'] < errorthreshold)])
+			source = source[source['slope error (mhz/ms)'] < errorthreshold]
+
+			# exclude slope ranges that flip signs over the dm range (this is analgous to the large error exclusion)
+			exclusionLogger('> exclusion rule: negative slope ranges', source[~(source['slope_over_nuobs'] > source['slope_over_nuobs_err'])])
+			source = source[source['slope_over_nuobs'] > source['slope_over_nuobs_err']]
+		else:
+			print(f'> Note: skipping exclusions for dataset {name}')
 
 		DMrangeLogger(name, source, burstwise=True) # log the dm range after we're done excluding
 		source = sloperanges(source) # compute drift ranges after burst exclusions
@@ -435,17 +455,20 @@ def bakeMeasurements(sources, names, exclusions, targetDMs, logging=True,
 		fitdata = pd.concat([fitdata, pd.DataFrame(fitresults)], ignore_index=True)
 
 		fitdf = fitdata.loc[(fitdata.name == name)].set_index('DM')
-		source = limitedDMsloperanges(fitdf, source)
 		tagged = False
-		for dm, color in zip(source.DM.unique(), itertools.cycle(['r', 'y', 'b', 'k', 'g', 'c', 'm'])):
-			# Figure 1
-			df = source[source.DM == dm]
-			if np.isclose(dm, targetDM):
-				print(f'>> num bursts remaining = {len(df.index.unique())}')
-				df['color'] = next(bakeddata['colors'])
-				bakeddata['frames'].append(df)
-				bakeddata['labels'].append(name)
-				tagged = True
+		if len(fitdf) != 0:
+			source = limitedDMsloperanges(fitdf, source)
+			for dm, color in zip(source.DM.unique(), itertools.cycle(['r', 'y', 'b', 'k', 'g', 'c', 'm'])):
+				# Figure 1
+				df = source[source.DM == dm]
+				if np.isclose(dm, targetDM):
+					print(f'>> num bursts remaining = {len(df.index.unique())}')
+					df['color'] = next(bakeddata['colors'])
+					bakeddata['frames'].append(df)
+					bakeddata['labels'].append(name)
+					tagged = True
+		elif len(fitdf) == 0:
+			print(f">> No measurements remaining for dataset {name}")
 		if not tagged:
 			print(">> No measurements at target DM")
 
