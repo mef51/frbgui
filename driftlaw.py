@@ -133,6 +133,11 @@ def modelerror(frame):
 	ey = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
 	return ex, ey
 
+def modelerror_recip(frame):
+	ex = np.sqrt(frame['red_chisq'])*frame['tau_w_error']
+	ey = np.sqrt(frame['red_chisq'])*frame['recip_norm_slope_err']
+	return ex, ey
+
 def rangeerror(frame):
 	"""
 	These ranges are not errors in the statistical sense. they are the min/max values, which should
