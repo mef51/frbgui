@@ -96,9 +96,16 @@ def fitgauss(data, duration):
 		data = data / np.max(data) # normalize
 	x = np.linspace(0, duration, num=len(data))*1000 # times in ms
 	xo = sum(x*data)/sum(data)
-	sigma = np.sqrt(abs(sum(data*(x-xo)**2)/sum(data)))
-	guess = [np.max(data), xo, sigma]
-	popt, pcov = scipy.optimize.curve_fit(gauss_model, x, data, p0=guess)
+	popt, pcov = scipy.optimize.curve_fit(
+		gauss_model,
+		x,
+		data,
+		p0=[
+			np.max(data),
+			xo,
+			np.sqrt(abs(sum(data*(x-xo)**2)/sum(data))) # sigma
+		]
+	)
 	return popt, pcov
 
 def fit4gauss(data, duration, xos):
@@ -112,7 +119,7 @@ def fit4gauss(data, duration, xos):
 	popt, pcov = scipy.optimize.curve_fit(gauss4_model, x, data, p0=guess)
 	return popt, pcov
 
-def plotburst(data, retfig=False, extent=None):
+def plotburst(data, band, retfig=False, extent=None):
 	fig, axs = plt.subplot_mosaic(
 		'''
 		T.
@@ -136,7 +143,7 @@ def plotburst(data, retfig=False, extent=None):
 	if not extent:
 		extent = [0, data.shape[1], 0, data.shape[0]]
 	axs['T'].plot(np.linspace(*extent[:2], num=data.shape[1]), np.nanmean(data, axis=0))
-	axs['B'].plot(np.nanmean(data, axis=1), np.linspace(*extent[2:], num=data.shape[0]))
+	axs['B'].stairs(band, np.linspace(*extent[2:], num=len(band)+1), orientation='horizontal')
 	if extent:
 		axs['W'].set_xlabel('Time (ms)')
 		axs['W'].set_ylabel('Frequency (MHz)')
@@ -210,23 +217,6 @@ if __name__ == '__main__':
 		times_ms = times*1000 # convenience
 		tseries = np.nanmean(wfall, axis=0)
 
-		# 1 burst:
-		pktime = np.nanargmax(np.nanmean(wfall, axis=0))*res_time*1000
-		t_popt, _ = fitgauss(tseries, duration)
-		window = 2*abs(t_popt[2]) # 2*stddev of a guassian fit to the integrated time series
-
-		##### 4 component model: use 4 1d gaussians to make 4 windows
-		xos = [9.26, 15.75, 22.61, 27.94] # ms
-		xos_chans = np.floor(np.array(xos)/res_time_ms)
-		t4_popt, _ = fit4gauss(tseries, duration, xos=xos)
-		windows4 = 2*np.abs(t4_popt[8:]) # 2*sigma
-		subfalls = []
-		for xoi, s in zip(xos_chans, t4_popt[8:]):
-			s = np.floor(4*np.abs(s)/res_time_ms)
-			subfall = wfall[..., int(xoi-s):int(xoi+s)] # 4sigma window around burst
-			subfall = driftrate.subtractbg(subfall, 0, int(subfall.shape[1]*0.1)) # again
-			subfalls.append(subfall)
-
 		def fitrows(wfall):
 			fitdata = np.zeros((wfall.shape[0], 10))
 			for i, row in enumerate(wfall):
@@ -267,20 +257,64 @@ if __name__ == '__main__':
 
 		tpoint = 'tstart' # 'tend', 'xo'
 
+		# 1 burst:
+		pktime = np.nanargmax(np.nanmean(wfall, axis=0))*res_time*1000
+		t_popt, _ = fitgauss(tseries, duration)
+		window = 2*abs(t_popt[2]) # 2*stddev of a guassian fit to the integrated time series
+
+		##### 4 component model: use 4 1d gaussians to make 4 windows in time,
+		# then use the time windows to make frequency windows
+		xos = [9.26, 15.75, 22.61, 27.94] # ms
+		xos_chans = np.floor(np.array(xos)/res_time_ms)
+		t4_popt, _ = fit4gauss(tseries, duration, xos=xos)
+		windows4 = 2*np.abs(t4_popt[8:]) # 2*sigma
+		subfalls = []
+		subbands = []
+		bandpass = np.zeros(wfall.shape[0])
+		for xoi, s in zip(xos_chans, t4_popt[8:]):
+			s4 = np.floor(4*np.abs(s)/res_time_ms)
+			s2 = np.floor(4*np.abs(s)/res_time_ms)
+			subfall = wfall[..., int(xoi-s4):int(xoi+s4)] # 4sigma window around burst
+			subband = wfall[..., int(xoi-s2):int(xoi+s2)].mean(axis=1) # sum only 2sigma from burst peak
+			subband = subband/np.max(subband) # Normalize
+			bandpass += subband
+			subfall = driftrate.subtractbg(subfall, 0, int(subfall.shape[1]*0.1)) # again
+			subfalls.append(subfall)
+			subbands.append(subband)
+
 		#### Fitting (4 subburst model)
 		dtdnus, subdfs = [], []
-		subpeaks = []
-		for subfall, xosi, win4i in zip(subfalls, xos, windows4):
-			subdf = fitrows(subfall)
-			subdf = subdf[(subdf.amp > 0)]
+		subpeaks, subbandmodels = [], []
+		for subfall, subband, xosi, win4i in zip(subfalls, subbands, xos, windows4):
+			subdf = fitrows(subfall) # Fit a 1d gaussian in each row of the waterfall
 			subpktime = np.nanargmax(np.nanmean(subfall, axis=0))*res_time*1000
+
+			# Fit 1d gauss to burst spectrum
+			fo = sum(freqs*subband)/sum(subband)
+			subband_popt, _ = scipy.optimize.curve_fit(
+				gauss_model,
+				freqs,
+				subband,
+				p0=[
+					np.max(subband),
+					fo,
+					np.sqrt(abs(sum(subband*(freqs-fo)**2)/sum(subband))) # sigma
+				]
+			)
+			bandwin = 3*subband_popt[2] # 3sigma spectral window, to leave room for uncertainty
+			pkfreq = subband_popt[1]
+
+			## Apply time and spectral filters to points
+			subdf = subdf[(subdf.amp > 0)]
 			subdf = subdf[(subpktime-win4i < subdf[tpoint]) & (subdf[tpoint] < subpktime+win4i)]
+			subdf = subdf[(pkfreq-bandwin < subdf['freqs']) & (subdf['freqs'] < pkfreq+bandwin)]
 
 			dtdnu, dtdnu_err = measuredtdnu(subdf, subpktime)
 
 			# Sub-burst plot
 			subfig, subaxs = plotburst(
 				subfall,
+				subband.reshape(-1, 4).mean(axis=1),
 				retfig=True,
 				extent=[
 					0,
@@ -302,6 +336,12 @@ if __name__ == '__main__':
 			subtimes = np.linspace(0, res_time_ms*subfall.shape[1], num=1000)
 			subaxs['W'].plot(subtimes, (1/dtdnu)*(subtimes-subpktime), 'w--', label=f'{dtdnu=:.2e} ms/MHz')
 			subaxs['W'].legend()
+
+			subaxs['B'].plot(
+				gauss_model(freqs, *subband_popt),
+				freqs
+			)
+			subbandmodels.append(gauss_model(freqs, *subband_popt))
 			# plt.show()
 			plt.close()
 
@@ -341,9 +381,9 @@ if __name__ == '__main__':
 		fig, axs = plt.subplot_mosaic(
 			'''
 			T.
-			AB
-			AC
-			AD
+			AS
+			AS
+			AS
 			EE
 			''',
 			figsize=(10, 8),
@@ -447,37 +487,32 @@ if __name__ == '__main__':
 			alpha=0.8
 		)
 
-		### Individual Profiles --> Replace with spectrum summed from 2sigma timeseries profile
-		profiles = arrtimesdf.sort_values('amp', ascending=False).head(3)
-		chans = profiles.index
-		lines = chans*res_freq + freqs_bin0
-		for line in lines:
-			ax_wfall.axhline(
-				y=line,
-				c='w',
-				linewidth=0.75,
-				ls='-.'
+		### Summed Spectrum (summed over burst widths). Total and individual
+		downfactor = 4
+		bandpass_down = bandpass.reshape(-1, downfactor).mean(axis=1)
+		axs['S'].stairs(
+			bandpass_down/np.max(bandpass_down),
+			np.linspace(*extent[2:], num=len(bandpass_down)+1),
+			orientation='horizontal',
+			# lw=2
+		)
+		for subbandmodel in subbandmodels:
+			axs['S'].plot(
+				subbandmodel,
+				freqs,
+				'k--',
+				alpha=0.5,
+				zorder=-1
 			)
 
-		for irow, panel in zip(profiles.iterrows(), ['B', 'C', 'D']):
-			chan, row = irow
-			x = np.linspace(0, duration, num=wfall.shape[1])*1000 # times in ms
-			xm = np.linspace(0, duration, num=2000)*1000 # times in ms
-			axs[panel].plot(x-xobar, wfall[chan,:]/np.max(wfall)) # match fit normalization
-			axs[panel].axvline(x=row['xo']-xobar, ls='--', c='k')
-			axs[panel].set_title(f'{row["freqs"]:.1f} MHz Time series', fontsize='medium')
-
 		axs['T'].sharex(axs['A'])
-		axs['A'].sharex(axs['B'])
-		axs['B'].sharex(axs['C'])
-		axs['C'].sharex(axs['D'])
-		axs['D'].set_xlabel('Time (ms)')
-		axs['B'].set_xlim(row['xo']-xobar - 0.015, row['xo']-xobar + 0.015)
+		axs['A'].sharey(axs['S'])
+		axs['S'].set_xlabel('Intensity (arb.)')
 		ax_wfall.set_xlim(extent[0], extent[1])
 		ax_wfall.set_ylim(extent[2], extent[3])
+
 		plt.setp(ax_tseries.get_xticklabels(), visible=False)
-		plt.setp(axs['B'].get_xticklabels(), visible=False)
-		plt.setp(axs['C'].get_xticklabels(), visible=False)
+		# plt.setp(axs['S'].get_yticklabels(), visible=False)
 
 		### Slope measurement plot
 		ax_slope = axs['E']
