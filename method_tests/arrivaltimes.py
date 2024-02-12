@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime
 import your
 from matplotlib.gridspec import GridSpec
 import matplotlib.colors as colors
@@ -21,6 +22,8 @@ def line_model(nu, dtdnu):
 def gauss_model(x, a, xo, sigma):
 	return a*np.exp(-(x-xo)**2/(2*(sigma**2)))
 
+###### N component models. Can these be generated?
+# See GaussianMixture models (sklearn, lmfit, general) maybe
 def gaussmix_model(x, *p):
 	n = len(p)/3
 	if n == 1:
@@ -74,64 +77,55 @@ def gaussmix_model(x, *p):
 			gauss_model(x, a5, xo5, sigma5) +
 			gauss_model(x, a6, xo6, sigma6)
 		)
+	if n == 7:
+		(
+			a1, a2, a3, a4, a5, a6, a7,
+			xo1, xo2, xo3, xo4, xo5, xo6, xo7,
+			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7
+		) = p
+		return (
+			gauss_model(x, a1, xo1, sigma1) +
+			gauss_model(x, a2, xo2, sigma2) +
+			gauss_model(x, a3, xo3, sigma3) +
+			gauss_model(x, a4, xo4, sigma4) +
+			gauss_model(x, a5, xo5, sigma5) +
+			gauss_model(x, a6, xo6, sigma6) +
+			gauss_model(x, a7, xo7, sigma7)
+		)
+	if n == 8:
+		(
+			a1, a2, a3, a4, a5, a6, a7, a8,
+			xo1, xo2, xo3, xo4, xo5, xo6, xo7, xo8,
+			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7, sigma8
+		) = p
+		return (
+			gauss_model(x, a1, xo1, sigma1) +
+			gauss_model(x, a2, xo2, sigma2) +
+			gauss_model(x, a3, xo3, sigma3) +
+			gauss_model(x, a4, xo4, sigma4) +
+			gauss_model(x, a5, xo5, sigma5) +
+			gauss_model(x, a6, xo6, sigma6) +
+			gauss_model(x, a7, xo7, sigma7) +
+			gauss_model(x, a8, xo8, sigma8)
+		)
+	if n == 9:
+		(
+			a1, a2, a3, a4, a5, a6, a7, a8, a9,
+			xo1, xo2, xo3, xo4, xo5, xo6, xo7, xo8, xo9,
+			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7, sigma8, sigma9
+		) = p
+		return (
+			gauss_model(x, a1, xo1, sigma1) +
+			gauss_model(x, a2, xo2, sigma2) +
+			gauss_model(x, a3, xo3, sigma3) +
+			gauss_model(x, a4, xo4, sigma4) +
+			gauss_model(x, a5, xo5, sigma5) +
+			gauss_model(x, a6, xo6, sigma6) +
+			gauss_model(x, a7, xo7, sigma7) +
+			gauss_model(x, a8, xo8, sigma8) +
+			gauss_model(x, a9, xo9, sigma9)
+		)
 
-
-###### N component models. Can these be generated?
-# See GaussianMixture models (sklearn, lmfit, general)
-def gauss2_model(
-	x,
-	a1, a2,
-	xo1, xo2,
-	sigma1, sigma2
-):
-	return (gauss_model(x, a1, xo1, sigma1) + gauss_model(x, a2, xo2, sigma2))
-
-def gauss3_model(
-	x,
-	a1, a2, a3,
-	xo1, xo2, xo3,
-	sigma1, sigma2, sigma3
-):
-	return (gauss_model(x, a1, xo1, sigma1) +
-	gauss_model(x, a2, xo2, sigma2) +
-	gauss_model(x, a3, xo3, sigma3))
-
-def gauss4_model(
-	x,
-	a1, a2, a3, a4,
-	xo1, xo2, xo3, xo4,
-	sigma1, sigma2, sigma3, sigma4
-):
-	# n = 4 => 3*n parameters
-	return (gauss_model(x, a1, xo1, sigma1) +
-	gauss_model(x, a2, xo2, sigma2) +
-	gauss_model(x, a3, xo3, sigma3) +
-	gauss_model(x, a4, xo4, sigma4))
-
-def gauss5_model(
-	x,
-	a1, a2, a3, a4, a5,
-	xo1, xo2, xo3, xo4, xo5,
-	sigma1, sigma2, sigma3, sigma4, sigma5
-):
-	return (gauss_model(x, a1, xo1, sigma1) +
-	gauss_model(x, a2, xo2, sigma2) +
-	gauss_model(x, a3, xo3, sigma3) +
-	gauss_model(x, a4, xo4, sigma4) +
-	gauss_model(x, a5, xo5, sigma5))
-
-def gauss6_model(
-	x,
-	a1, a2, a3, a4, a5, a6,
-	xo1, xo2, xo3, xo4, xo5, xo6,
-	sigma1, sigma2, sigma3, sigma4, sigma5, sigma6
-):
-	return (gauss_model(x, a1, xo1, sigma1) +
-	gauss_model(x, a2, xo2, sigma2) +
-	gauss_model(x, a3, xo3, sigma3) +
-	gauss_model(x, a4, xo4, sigma4) +
-	gauss_model(x, a5, xo5, sigma5) +
-	gauss_model(x, a6, xo6, sigma6))
 ########### End n-component models
 
 def fitgauss(data, duration):
@@ -253,7 +247,7 @@ def plotburst(data, band, retfig=False, extent=None):
 		plt.show()
 		plt.close()
 
-def measureburst(filename, xos=[], outdir='', show=True):
+def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
 	Compute the inverse sub-burst slope (dt/dnu) using the per-row arrival time method
@@ -270,6 +264,7 @@ def measureburst(filename, xos=[], outdir='', show=True):
 		outdir (str): string of output folder for figures
 		show (bool): if True show interactive figure window for each file
 	"""
+	xos = sorted(xos)
 	results = []
 	bname = filename.split('/')[-1].split('.')[0]
 	data = np.load(filename, allow_pickle=True)
@@ -317,6 +312,13 @@ def measureburst(filename, xos=[], outdir='', show=True):
 	for xoi, s in zip(xos_chans, tmix_sigmas):
 		s4 = np.floor(4*np.abs(s)/res_time_ms)
 		s1 = np.floor(1*np.abs(s)/res_time_ms)
+		if s4 == 0 or s1 == 0:
+			s4 = 10 # hack
+			s1 = 10 # hack
+			lbl = subburst_suffixes[np.where(xos_chans == xoi)[0][0]]
+			print(
+				f"Warning: Component ({lbl}) has 0 width, likely due to poor 1D fit"
+			)
 
 		# account for when the edge is outside of wfall
 		if xoi-s4 < 0:
@@ -346,17 +348,21 @@ def measureburst(filename, xos=[], outdir='', show=True):
 
 		# Fit 1d gauss to burst spectrum
 		fo = sum(freqs*subband)/sum(subband) # this is an estimate of center_f
-		subband_popt, subband_pcov = scipy.optimize.curve_fit(
-			gauss_model,
-			freqs,
-			subband/np.max(subband),
-			p0=[
-				1,
-				fo,
-				np.sqrt(abs(sum(subband*(freqs-fo)**2)/sum(subband))) # sigma
-			]
-		)
-		subband_perr = np.sqrt(np.diag(subband_pcov))
+		try:
+			subband_popt, subband_pcov = scipy.optimize.curve_fit(
+				gauss_model,
+				freqs,
+				subband/np.max(subband),
+				p0=[
+					1,
+					fo,
+					np.sqrt(abs(sum(subband*(freqs-fo)**2)/sum(subband))) # sigma
+				],
+			)
+			subband_perr = np.sqrt(np.diag(subband_pcov))
+		except RuntimeError as e:
+			subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
+
 		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
 		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f
 
@@ -369,7 +375,10 @@ def measureburst(filename, xos=[], outdir='', show=True):
 			(subdf['freqs'] < pkfreq+3*bwidth)
 		]
 
-		dtdnu, dtdnu_err = measuredtdnu(subdf, subpktime)
+		if len(subdf) != 0:
+			dtdnu, dtdnu_err = measuredtdnu(subdf, subpktime)
+		else:
+			dtdnu, dtdnu_err = 0, 0 # no measurement
 
 		# Sub-burst plot
 		subfig, subaxs = plotburst(
@@ -394,12 +403,13 @@ def measureburst(filename, xos=[], outdir='', show=True):
 		subaxs['W'].set_xlim(0, res_time_ms*subfall.shape[1])
 		subaxs['W'].set_ylim(freqs_bin0, freqs_bin0 + res_freq*wfall.shape[0])
 		subtimes = np.linspace(0, res_time_ms*subfall.shape[1], num=1000)
-		subaxs['W'].plot(
-			subtimes,
-			(1/dtdnu)*(subtimes-subpktime),
-			'w--',
-			label=f'{dtdnu=:.2e} ms/MHz'
-		)
+		if dtdnu != 0:
+			subaxs['W'].plot(
+				subtimes,
+				(1/dtdnu)*(subtimes-subpktime),
+				'w--',
+				label=f'{dtdnu=:.2e} ms/MHz'
+			)
 		subaxs['W'].legend()
 
 		subaxs['B'].plot(
@@ -407,7 +417,7 @@ def measureburst(filename, xos=[], outdir='', show=True):
 			freqs
 		)
 		subbandmodels.append(gauss_model(freqs, *subband_popt))
-		# plt.show() # show figure of the cutout sub-burst
+		if show_components: plt.show() # show figure of the cutout sub-burst
 		plt.close()
 
 		subdf[tpoint] = subdf[tpoint] + (xosi-4*sigma) # transform to full waterfall times
@@ -477,14 +487,15 @@ def measureburst(filename, xos=[], outdir='', show=True):
 
 	# component lines
 	for (dtdnu, dtdnu_err), xoi in zip(dtdnus, xos):
-		ax_wfall.plot(
-			times_ms-pktime,
-			(1/dtdnu)*(times_ms-xoi),
-			'w--',
-			alpha=0.75,
-			# label=f'$dt/d\\nu = $ {dtdnu:.2e} $\\pm$ {dtdnu_err:.2e}'
-			label=f'{subburst_suffixes[xos.index(xoi)]}. $dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz'
-		)
+		if dtdnu != 0:
+			ax_wfall.plot(
+				times_ms-pktime,
+				(1/dtdnu)*(times_ms-xoi),
+				'w--',
+				alpha=0.75,
+				# label=f'$dt/d\\nu = $ {dtdnu:.2e} $\\pm$ {dtdnu_err:.2e}'
+				label=f'{subburst_suffixes[xos.index(xoi)]}. $dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz'
+			)
 
 	ax_wfall.set_title(f"{bname}")
 	ax_wfall.legend(loc=1, handlelength=0)
@@ -622,38 +633,38 @@ if __name__ == '__main__':
 		'fil_59872_37843_186776977_FRB20220912a_0001_lob_10sec_crop.npz' : [7, 12.2],
 		'fil_59873_29353_191532226_FRB20220912a_0001_lob_10sec_crop.npz' : [7.9, 9.6],
 		'fil_59875_21343_201590209_FRB20220912a_0001_lob_10sec_crop.npz' : [6.95, 7.41],
-		'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.1, 29.6, 31.7, 35.1, 41.7],
+		'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.07, 29.91, 32.43, 34.89, 36.08, 41.7],
 		'fil_59880_32784_228655700_FRB20220912a_0001_lob_10sec_crop.npz' : [7.86, 12.5, 13.84],
 		'fil_59880_34610_228767150_FRB20220912a_0001_lob_10sec_crop.npz' : [9.34, 10.95, 17.5],
 		'fil_59882_22768_238591247_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [],#[10.45, 7.35],
+		'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [10.43, 7.35],
 		'fil_59883_08510_242994445_FRB20220912a_0001_lob_10sec_crop.npz' : [13.22, 19.08],
 		'fil_59883_37405_244758056_FRB20220912a_0001_lob_10sec_crop.npz' : [9.26, 15.75, 22.61, 27.94], # ms, burst B10 of Sheikh2023
-		'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [],#[13.89, 22.89, 30.1, 23.93],
-		'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [],
-		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [],
-		'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [13.89, 21.78, 23.77, 30.29],
+		'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [10.36, 17.53],
+		'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [15.76, 9.83, 11.33],
+		'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [8.87, 16.52],
+		'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [24.77, 11.71, 18.6],
+		'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [16.19, 18.63],
+		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [7.29, 9.04],
+		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [24.2, 9.75, 15.75, 18.25, 22.06, 28.88],
+		'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [14.92, 10.64, 13.21, 18.24, 23.52],
+		'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [18.23, 13.54],
+		'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [9.82, 12.43, 16.71, 22.47, 25.0],
 		'fil_59900_22810_333515686_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [25.55, 9.26, 11.18, 12.41, 13.96, 19.4, 28.63, 32.97, 38.5],#[25.55, 9.12, 11.45, 14.42, 19.58, 32.97, 38.73],
+		'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [10.07, 13.97, 19.11],
+		'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [14.94, 18.1, 21.34, 24.45, 28.25, 30.53],
+		'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [17.25, 22.56, 24.84, 31.28],
 		'fil_59907_21795_370367797_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [8.56, 10.56],
 		'fil_59914_20362_407194396_FRB20220912a_0001_lob_10sec_crop.npz' : [],
 		'fil_59915_24158_412699523_FRB20220912a_0001_lob_10sec_crop.npz' : [],
 		'fil_59916_25852_418076354_FRB20220912a_0001_lob_10sec_crop.npz' : [],
 		'fil_59920_19510_438783020_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : []
+		'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [8.23, 10.65],
+		'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [24.58, 11.67],
+		'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : [10.4, 18.72, 23.7, 25.62, 29.36, 32.75, 37.5]
 	}
 
 	results = []
@@ -663,7 +674,8 @@ if __name__ == '__main__':
 			filename,
 			xos=xos,
 			outdir='sheikh/',
-			show=False
+			show=False,
+			show_components=False
 		)
 		for row in burst_results:
 			results.append(row)
@@ -680,5 +692,8 @@ if __name__ == '__main__':
 		'dtdnu (ms/MHz)',
 		'dtdnu_err'
 	]).set_index('name')
-	resultsdf.to_csv('sheikh/results_Feb_9_2024.csv')
+
+	fileout = f"sheikh/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	resultsdf.to_csv(fileout)
+	print(f"Saved {fileout}.")
 
