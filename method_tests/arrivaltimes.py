@@ -3,14 +3,12 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import your
 from matplotlib.gridspec import GridSpec
-import matplotlib.colors as colors
 from matplotlib.patches import Rectangle, Ellipse
 import scipy, glob
-from itertools import zip_longest
+from itertools import zip_longest, cycle
 from tqdm import tqdm
 import pandas as pd
 # from sklearn.mixture import GaussianMixture
-
 import driftrate
 from driftrate import scilabel, subburst_suffixes
 
@@ -247,7 +245,7 @@ def plotburst(data, band, retfig=False, extent=None):
 		plt.show()
 		plt.close()
 
-def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
+def measureburst(filename, xos=[], outdir='', show=True, show_components=False, save=True):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
 	Compute the inverse sub-burst slope (dt/dnu) using the per-row arrival time method
@@ -256,13 +254,16 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 	1 sigma widths of either fit.
 	Compute the center frequency as the center of the 1d spectrum model
 
-	If multiple components are present, split them up and measure individually.
+	If multiple components are present, split them up and measure individually. The number
+	of components to fit for is equal to ``len(xos)``
 
 	Args:
 		filename (str): filename to npz of burst waterfall
-		xos (List[float]): list of times in ms of burst centers. Can be approximate.
+		xos (List[float]): list of times in ms of sub-burst centers. Can be approximate.
 		outdir (str): string of output folder for figures
 		show (bool): if True show interactive figure window for each file
+		show_components (bool): if True show figure window for each sub-burst
+		save (bool): if True save a figure displaying the measurements.
 	"""
 	xos = sorted(xos)
 	results = []
@@ -338,7 +339,17 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 
 	#### Fitting
 	dtdnus, subdfs = [], []
-	subpeaks, subbandmodels = [], []
+	subbandpopts, subbandmodels = [], []
+	colors = cycle([
+		'white',
+		'black',
+		'red',
+		'green',
+		'blue',
+		'yellow',
+		'darkgreen',
+		'brown'
+	])
 	for subfall, subband, xosi, sigma, sigma_err in zip(
 		subfalls, subbands, xos, tmix_sigmas, tmix_sigma_errs
 	):
@@ -421,9 +432,10 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 		plt.close()
 
 		subdf[tpoint] = subdf[tpoint] + (xosi-4*sigma) # transform to full waterfall times
+		subdf['color'] = next(colors) # assign color to points
 
 		dtdnus.append((dtdnu, dtdnu_err))
-		subpeaks.append(subpktime)
+		subbandpopts.append(subband_popt)
 		subdfs.append(subdf)
 		# print(f"{dtdnu = } +/- {dtdnu_err = }")
 
@@ -474,13 +486,14 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 		norm='linear',
 		vmax=np.quantile(wfall, 0.999),
 	)
-	subcolors = [(1, 1, 1, alpha) for alpha in np.clip(subdf['amp'], 0, 1)]
 	ax_wfall.scatter( # component fit points
 		subdf[tpoint]-pktime,
 		subdf['freqs'],
-		c=subcolors,
+		c='w',
+		edgecolors=subdf['color'],
 		marker='o',
-		s=25
+		s=25,
+		alpha=np.clip(subdf['amp'], 0, 1)
 	)
 	ax_wfall.set_xlabel("Time (ms)")
 	ax_wfall.set_ylabel("Frequency (MHz)")
@@ -503,6 +516,7 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 	ax_tseries = axs['T']
 	ax_tseries.plot(times_ms-pktime, tseries)
 
+	# plot filter windows (time)
 	for s, xoi in zip(tmix_sigmas, xos):
 		w = 2*np.abs(s)
 		ax_tseries.add_patch(Rectangle(
@@ -541,8 +555,9 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 	### Summed Spectrum (summed over burst widths). Total and individual
 	downfactor = 4
 	bandpass_down = bandpass.reshape(-1, downfactor).mean(axis=1)
+	bandpass_down = bandpass_down / np.max(bandpass_down)
 	axs['S'].stairs(
-		bandpass_down/np.max(bandpass_down),
+		bandpass_down,
 		np.linspace(*extent[2:], num=len(bandpass_down)+1),
 		orientation='horizontal',
 		# lw=2
@@ -555,6 +570,18 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 			alpha=0.5,
 			zorder=-1
 		)
+
+	# plot filter windows (frequency)
+	for i, subbandpopt in enumerate(subbandpopts):
+		pkfreq, bw = subbandpopt[1], 3*subbandpopt[2]
+		rectwidth = np.max(bandpass_down)*0.035
+		axs['S'].add_patch(Rectangle(
+			(0.025+axs['S'].get_xlim()[0] + i*(rectwidth+0.025), pkfreq-bw),
+			height=2*bw,
+			width=rectwidth,
+			color='tomato',
+			alpha=0.5
+		))
 
 	axs['T'].sharex(axs['A'])
 	axs['A'].sharey(axs['S'])
@@ -612,12 +639,13 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False):
 	cid = fig.canvas.mpl_connect('button_press_event', printtime)
 
 	if show: plt.show()
-	if '/' in outdir or outdir == '':
-		outname = f"{outdir}{bname}.png"
-	else:
-		outname = f"{outdir}/{bname}.png"
-	plt.savefig(outname)
-	print(f"Saved {outname}.")
+	if save:
+		if '/' in outdir or outdir == '':
+			outname = f"{outdir}{bname}.png"
+		else:
+			outname = f"{outdir}/{bname}.png"
+		plt.savefig(outname)
+		print(f"Saved {outname}.")
 
 	plt.close()
 	return results
@@ -675,7 +703,8 @@ if __name__ == '__main__':
 			xos=xos,
 			outdir='sheikh/',
 			show=False,
-			show_components=False
+			show_components=False,
+			save=True
 		)
 		for row in burst_results:
 			results.append(row)
