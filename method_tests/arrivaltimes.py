@@ -259,13 +259,25 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 
 	Args:
 		filename (str): filename to npz of burst waterfall
-		xos (List[float]): list of times in ms of sub-burst centers. Can be approximate.
+		xos (List[float] or 2-tuple of List[float]): list of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to split the waterfall
 		outdir (str): string of output folder for figures
 		show (bool): if True show interactive figure window for each file
 		show_components (bool): if True show figure window for each sub-burst
 		save (bool): if True save a figure displaying the measurements.
 	"""
+	cuts = []
+	if type(xos) == tuple:
+		if len(xos) != 2:
+			raise "Error: xos must be a list or tuple of two lists"
+		cuts = xos[1]
+		if len(cuts) > 1:
+			raise "Error: more than 1 cut is not implemented"
+		xos = xos[0]
+	if type(xos) != list:
+		raise "Error: xos must be a list"
+
 	xos = sorted(xos)
+
 	results = []
 	bname = filename.split('/')[-1].split('.')[0]
 	data = np.load(filename, allow_pickle=True)
@@ -321,19 +333,28 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 				f"Warning: Component ({lbl}) has 0 width, likely due to poor 1D fit"
 			)
 
-		# account for when the edge is outside of wfall
-		if xoi-s4 < 0:
-			subfall = wfall[..., :int(xoi+s4)]
-		else:
-			subfall = wfall[..., int(xoi-s4):int(xoi+s4)] # 4sigma window around burst
+		if len(cuts) == 0:
+			# account for when the edge is outside of wfall
+			if xoi-s4 < 0:
+				subfall = wfall[..., :int(xoi+s4)]
+			else:
+				subfall = wfall[..., int(xoi-s4):int(xoi+s4)] # 4sigma window around burst
+		elif len(cuts) == 1:
+			cutchan = int(np.floor(np.array(cuts)/res_time_ms)[0])
+			if xoi < cutchan:
+				subfall = wfall[..., :cutchan]
+			elif xoi > cutchan:
+				subfall = wfall[..., cutchan:]
+
 		if xoi-s1 < 0:
 			subband = wfall[..., :int(xoi+s1)].mean(axis=1)
 		else:
 			subband = wfall[..., int(xoi-s1):int(xoi+s1)].mean(axis=1) # sum only 1 sigma from burst peak
 
 		bandpass += subband
-		subfall = driftrate.subtractbg(subfall, 0, 10) # subtract bg again, left
-		subfall = driftrate.subtractbg(subfall, subfall.shape[1]-1-10, None) # right
+		if len(cuts) == 0: # need to be careful about bg subtraction when cutting
+			subfall = driftrate.subtractbg(subfall, 0, 10) # subtract bg again, left
+			subfall = driftrate.subtractbg(subfall, subfall.shape[1]-1-10, None) # right
 		subfalls.append(subfall)
 		subbands.append(subband)
 
@@ -355,7 +376,10 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 	):
 		sigma = abs(sigma)
 		subdf = fitrows(subfall, res_time_ms, freqs) # Fit a 1d gaussian in each row of the waterfall
-		subpktime = 4*sigma # since we made a 4 sigma window
+		if len(cuts) == 0:
+			subpktime = 4*sigma # since we made a 4 sigma window
+		else:
+			subpktime = np.nanargmax(subfall.mean(axis=0))*res_time_ms
 
 		# Fit 1d gauss to burst spectrum
 		fo = sum(freqs*subband)/sum(subband) # this is an estimate of center_f
@@ -431,7 +455,14 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 		if show_components: plt.show() # show figure of the cutout sub-burst
 		plt.close()
 
-		subdf[tpoint] = subdf[tpoint] + (xosi-4*sigma) # transform to full waterfall times
+		# transform times to full waterfall times
+		if len(cuts) == 1:
+			if xosi < cuts[0]:
+				pass # times are already good
+			elif xosi > cuts[0]:
+				subdf[tpoint] = subdf[tpoint] + cuts[0]
+		else:
+			subdf[tpoint] = subdf[tpoint] + (xosi-4*sigma)
 		subdf['color'] = next(colors) # assign color to points
 
 		dtdnus.append((dtdnu, dtdnu_err))
@@ -619,7 +650,17 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 	ax_slope.set_xlim(min(freqs), max(freqs))
 	plt.tight_layout()
 
-	[ax_tseries.axvline(x=t-pktime, ls='--') for t in xos]
+
+	for t in xos:
+		ax_tseries.axvline(x=t-pktime, ls='--')
+	for cut in cuts:
+		ax_tseries.axvline(
+			x=cut-pktime,
+			ls='-.',
+			c='k',
+			zorder=-1,
+		)
+
 	def printtime(event):
 		if event.dblclick:
 			x, y = event.xdata, event.ydata
@@ -658,53 +699,54 @@ if __name__ == '__main__':
 
 	prefix = '/Users/mchamma/dev/frbdata/FRB20220912A/sheikh2023/npzs/'
 	files = {
-		'fil_59872_37843_186776977_FRB20220912a_0001_lob_10sec_crop.npz' : [7, 12.2],
-		'fil_59873_29353_191532226_FRB20220912a_0001_lob_10sec_crop.npz' : [7.9, 9.6],
-		'fil_59875_21343_201590209_FRB20220912a_0001_lob_10sec_crop.npz' : [6.95, 7.41],
-		'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.07, 29.91, 32.43, 34.89, 36.08, 41.7],
-		'fil_59880_32784_228655700_FRB20220912a_0001_lob_10sec_crop.npz' : [7.86, 12.5, 13.84],
-		'fil_59880_34610_228767150_FRB20220912a_0001_lob_10sec_crop.npz' : [9.34, 10.95, 17.5],
-		'fil_59882_22768_238591247_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [10.43, 7.35],
-		'fil_59883_08510_242994445_FRB20220912a_0001_lob_10sec_crop.npz' : [13.22, 19.08],
-		'fil_59883_37405_244758056_FRB20220912a_0001_lob_10sec_crop.npz' : [9.26, 15.75, 22.61, 27.94], # ms, burst B10 of Sheikh2023
-		'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [13.89, 21.78, 23.77, 30.29],
-		'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [10.36, 17.53],
-		'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [15.76, 9.83, 11.33],
-		'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [8.87, 16.52],
-		'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [24.77, 11.71, 18.6],
-		'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [16.19, 18.63],
-		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [7.29, 9.04],
-		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [24.2, 9.75, 15.75, 18.25, 22.06, 28.88],
-		'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [14.92, 10.64, 13.21, 18.24, 23.52],
-		'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [18.23, 13.54],
-		'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [9.82, 12.43, 16.71, 22.47, 25.0],
-		'fil_59900_22810_333515686_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [25.55, 9.26, 11.18, 12.41, 13.96, 19.4, 28.63, 32.97, 38.5],#[25.55, 9.12, 11.45, 14.42, 19.58, 32.97, 38.73],
-		'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [10.07, 13.97, 19.11],
-		'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [14.94, 18.1, 21.34, 24.45, 28.25, 30.53],
-		'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [17.25, 22.56, 24.84, 31.28],
-		'fil_59907_21795_370367797_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [8.56, 10.56],
-		'fil_59914_20362_407194396_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59915_24158_412699523_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59916_25852_418076354_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59920_19510_438783020_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [8.23, 10.65],
-		'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [24.58, 11.67],
-		'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : [10.4, 18.72, 23.7, 25.62, 29.36, 32.75, 37.5]
+		# 'fil_59872_37843_186776977_FRB20220912a_0001_lob_10sec_crop.npz' : [7, 12.2],
+		'fil_59873_29353_191532226_FRB20220912a_0001_lob_10sec_crop.npz' : ([7.9, 9.6], [8.77]),
+		# 'fil_59875_21343_201590209_FRB20220912a_0001_lob_10sec_crop.npz' : [6.95, 7.41],
+		# 'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.07, 29.91, 32.43, 34.89, 36.08, 41.7],
+		# 'fil_59880_32784_228655700_FRB20220912a_0001_lob_10sec_crop.npz' : [7.86, 12.5, 13.84],
+		# 'fil_59880_34610_228767150_FRB20220912a_0001_lob_10sec_crop.npz' : [9.34, 10.95, 17.5],
+		# 'fil_59882_22768_238591247_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [10.43, 7.35],
+		# 'fil_59883_08510_242994445_FRB20220912a_0001_lob_10sec_crop.npz' : [13.22, 19.08],
+		# 'fil_59883_37405_244758056_FRB20220912a_0001_lob_10sec_crop.npz' : [9.26, 15.75, 22.61, 27.94], # ms, burst B10 of Sheikh2023
+		# 'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [13.89, 21.78, 23.77, 30.29],
+		# 'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [10.36, 17.53],
+		# 'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [15.76, 9.83, 11.33],
+		# 'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [8.87, 16.52],
+		# 'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [24.77, 11.71, 18.6],
+		# 'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [16.19, 18.63],
+		# 'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [7.29, 9.04],
+		# 'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [24.2, 9.75, 15.75, 18.25, 22.06, 28.88],
+		# 'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [14.92, 10.64, 13.21, 18.24, 23.52],
+		# 'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [18.23, 13.54],
+		# 'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [9.82, 12.43, 16.71, 22.47, 25.0],
+		# 'fil_59900_22810_333515686_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [25.55, 9.26, 11.18, 12.41, 13.96, 19.4, 28.63, 32.97, 38.5],#[25.55, 9.12, 11.45, 14.42, 19.58, 32.97, 38.73],
+		# 'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [10.07, 13.97, 19.11],
+		# 'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [14.94, 18.1, 21.34, 24.45, 28.25, 30.53],
+		# 'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [17.25, 22.56, 24.84, 31.28],
+		# 'fil_59907_21795_370367797_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [8.56, 10.56],
+		# 'fil_59914_20362_407194396_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59915_24158_412699523_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59916_25852_418076354_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59920_19510_438783020_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		# 'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [8.23, 10.65],
+		# 'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [24.58, 11.67],
+		# 'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : [10.4, 18.72, 23.7, 25.62, 29.36, 32.75, 37.5]
 	}
 
 	results = []
+	save = False
 	for filename, xos in files.items():
 		filename = f'{prefix}{filename}'
 		burst_results = measureburst(
 			filename,
 			xos=xos,
 			outdir='sheikh/',
-			show=False,
+			show=True,
 			show_components=False,
-			save=True
+			save=save
 		)
 		for row in burst_results:
 			results.append(row)
@@ -723,6 +765,7 @@ if __name__ == '__main__':
 	]).set_index('name')
 
 	fileout = f"sheikh/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
-	resultsdf.to_csv(fileout)
-	print(f"Saved {fileout}.")
+	if save:
+		resultsdf.to_csv(fileout)
+		print(f"Saved {fileout}.")
 
