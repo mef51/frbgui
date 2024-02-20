@@ -225,7 +225,9 @@ def plotburst(data, band, retfig=False, extent=None):
 		aspect='auto',
 		origin='lower',
 		interpolation='none',
-		extent=extent
+		extent=extent,
+		norm='linear',
+		vmax=np.quantile(data, 0.999),
 	)
 	if not extent:
 		extent = [0, data.shape[1], 0, data.shape[0]]
@@ -245,7 +247,18 @@ def plotburst(data, band, retfig=False, extent=None):
 		plt.show()
 		plt.close()
 
-def measureburst(filename, xos=[], outdir='', show=True, show_components=False, save=True):
+def measureburst(
+	filename,
+	xos=[],
+	downfactors=(1,1),
+	subtractbg=False,
+	crop=None,
+	masks=[],
+	outdir='',
+	show=True,
+	show_components=False,
+	save=True
+):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
 	Compute the inverse sub-burst slope (dt/dnu) using the per-row arrival time method
@@ -261,6 +274,8 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 		filename (str): filename to npz of burst waterfall
 		xos (List[float] or 2-tuple of List[float]): list of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to split the waterfall
 		outdir (str): string of output folder for figures
+		crop (tuple[int]): pair of indices in time to crop the waterfall
+		mask (List[int]): frequency indices to mask
 		show (bool): if True show interactive figure window for each file
 		show_components (bool): if True show figure window for each sub-burst
 		save (bool): if True save a figure displaying the measurements.
@@ -282,8 +297,16 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 	bname = filename.split('/')[-1].split('.')[0]
 	data = np.load(filename, allow_pickle=True)
 	wfall = data['wfall']
+	for mask in masks:
+		wfall[mask] = 0
 	wfall = driftrate.subtractbg(wfall, 0, int(wfall.shape[1]*0.1))
-	wfall = driftrate.subsample(wfall, wfall.shape[0]//6, wfall.shape[1]//2) # for 4 component burst
+	if type(crop) == tuple and len(crop) == 2:
+		wfall = wfall[..., crop[0]:crop[1]]
+	wfall = driftrate.subsample(
+		wfall,
+		wfall.shape[0]//downfactors[0],
+		wfall.shape[1]//downfactors[1]
+	)
 
 	freqs_bin0 = min(data['dfs'])
 	res_freq = data['bandwidth'] / wfall.shape[0] # MHz
@@ -352,7 +375,7 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 			subband = wfall[..., int(xoi-s1):int(xoi+s1)].mean(axis=1) # sum only 1 sigma from burst peak
 
 		bandpass += subband
-		if len(cuts) == 0: # need to be careful about bg subtraction when cutting
+		if len(cuts) == 0 and subtractbg: # need to be careful about bg subtraction when cutting
 			subfall = driftrate.subtractbg(subfall, 0, 10) # subtract bg again, left
 			subfall = driftrate.subtractbg(subfall, subfall.shape[1]-1-10, None) # right
 		subfalls.append(subfall)
@@ -396,6 +419,7 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 			)
 			subband_perr = np.sqrt(np.diag(subband_pcov))
 		except RuntimeError as e:
+			print(f"Warning: Spectrum fit failed. Skipping burst bandwidth filter.")
 			subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
 
 		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
@@ -405,10 +429,11 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 		subdf = subdf[(subdf.amp > 0)]
 		subdf = subdf[subdf.tstart_err/subdf.tstart < 10]
 		subdf = subdf[(subpktime-2*sigma < subdf[tpoint]) & (subdf[tpoint] < subpktime+2*sigma)]
-		subdf = subdf[
-			(pkfreq-3*bwidth < subdf['freqs']) &
-			(subdf['freqs'] < pkfreq+3*bwidth)
-		]
+		if bwidth != 1:
+			subdf = subdf[
+				(pkfreq-3*bwidth < subdf['freqs']) &
+				(subdf['freqs'] < pkfreq+3*bwidth)
+			]
 
 		if len(subdf) != 0:
 			dtdnu, dtdnu_err = measuredtdnu(subdf, subpktime)
@@ -470,8 +495,9 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 		subdfs.append(subdf)
 		# print(f"{dtdnu = } +/- {dtdnu_err = }")
 
+		rowname = bname if len(xos) == 1 else f'{bname}_{subburst_suffixes[xos.index(xosi)]}'
 		results.append([
-			f'{bname}_{subburst_suffixes[xos.index(xosi)]}',
+			rowname,
 			float(data['DM']),
 			pkfreq,
 			pkfreq_err,
@@ -517,15 +543,16 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 		norm='linear',
 		vmax=np.quantile(wfall, 0.999),
 	)
-	ax_wfall.scatter( # component fit points
-		subdf[tpoint]-pktime,
-		subdf['freqs'],
-		c='w',
-		edgecolors=subdf['color'],
-		marker='o',
-		s=25,
-		alpha=np.clip(subdf['amp'], 0, 1)
-	)
+	if len(subdf) > 0:
+		ax_wfall.scatter( # component fit points
+			subdf[tpoint]-pktime,
+			subdf['freqs'],
+			c='w',
+			edgecolors=subdf['color'],
+			marker='o',
+			s=25,
+			alpha=np.clip(subdf['amp'], 0, 1)
+		)
 	ax_wfall.set_xlabel("Time (ms)")
 	ax_wfall.set_ylabel("Frequency (MHz)")
 
@@ -584,8 +611,8 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 	)
 
 	### Summed Spectrum (summed over burst widths). Total and individual
-	downfactor = 4
-	bandpass_down = bandpass.reshape(-1, downfactor).mean(axis=1)
+	downband = 4
+	bandpass_down = bandpass.reshape(-1, downband).mean(axis=1)
 	bandpass_down = bandpass_down / np.max(bandpass_down)
 	axs['S'].stairs(
 		bandpass_down,
@@ -685,55 +712,123 @@ def measureburst(filename, xos=[], outdir='', show=True, show_components=False, 
 			outname = f"{outdir}{bname}.png"
 		else:
 			outname = f"{outdir}/{bname}.png"
-		plt.savefig(outname)
+		fig.savefig(outname)
 		print(f"Saved {outname}.")
 
 	plt.close()
 	return results
 
-if __name__ == '__main__':
-	# files = glob.glob('/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/*.npz')
-	# files = glob.glob('/Users/mchamma/dev/frbdata/FRB20220912A/sheikh2023/npzs/*.npz')
-	# [print(f) for f in sorted(files)]
-	# exit()
+results_columns = [
+	'name',
+	'DM',
+	'center_f (MHz)',
+	'center_f_err',
+	'duration (ms)',
+	'duration_err',
+	'bandwidth (MHz)',
+	'bandwidth_err',
+	'dtdnu (ms/MHz)',
+	'dtdnu_err'
+]
 
+# if __name__ == '__main__':
+# 	files = glob.glob('/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/*.npz')
+# 	files = glob.glob('/Users/mchamma/dev/frbdata/FRB20220912A/sheikh2023/npzs/*.npz')
+# 	[print(f) for f in sorted(files)]
+# 	exit()
+
+########################################
+########################################
+
+if __name__ == '__main__': ## 'snelders__main__'
+	prefix = '/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/'
+	files = {
+		'burst_B06_a.npz' : [],
+		'burst_B06_b.npz' : [],
+		'burst_B07.npz'   : [],
+		'burst_B10.npz'   : [],
+		'burst_B30.npz'   : [],
+		'burst_B31_a.npz' : [],
+		'burst_B31_b.npz' : [],
+		'burst_B38.npz'   : [],
+		'burst_B43.npz'   : [],
+		'burst_B44.npz'   : [],
+	}
+
+	save = True
+	results = []
+	for filename, xos in files.items():
+		crop = None
+		if filename == 'burst_B06_b.npz':
+			crop = (0, 200)
+
+		masks = []
+		if filename == 'burst_B43.npz':
+			masks = [98]
+
+		filename = f'{prefix}{filename}'
+		burst_results = measureburst(
+			filename,
+			xos=xos,
+			subtractbg=False,
+			crop=crop,
+			masks=masks,
+			outdir='snelders/',
+			show=True,
+			show_components=False,
+			save=save
+		)
+		for row in burst_results:
+			results.append(row)
+
+	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
+
+	fileout = f"snelders/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	if save:
+		resultsdf.to_csv(fileout)
+		print(f"Saved {fileout}.")
+
+########################################
+########################################
+
+if __name__ == 'sheikh__main__': ## 'sheikh__main__'
 	prefix = '/Users/mchamma/dev/frbdata/FRB20220912A/sheikh2023/npzs/'
 	files = {
-		# 'fil_59872_37843_186776977_FRB20220912a_0001_lob_10sec_crop.npz' : [7, 12.2],
+		'fil_59872_37843_186776977_FRB20220912a_0001_lob_10sec_crop.npz' : [7, 12.2],
 		'fil_59873_29353_191532226_FRB20220912a_0001_lob_10sec_crop.npz' : ([7.9, 9.6], [8.77]),
-		# 'fil_59875_21343_201590209_FRB20220912a_0001_lob_10sec_crop.npz' : [6.95, 7.41],
-		# 'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.07, 29.91, 32.43, 34.89, 36.08, 41.7],
-		# 'fil_59880_32784_228655700_FRB20220912a_0001_lob_10sec_crop.npz' : [7.86, 12.5, 13.84],
-		# 'fil_59880_34610_228767150_FRB20220912a_0001_lob_10sec_crop.npz' : [9.34, 10.95, 17.5],
-		# 'fil_59882_22768_238591247_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [10.43, 7.35],
-		# 'fil_59883_08510_242994445_FRB20220912a_0001_lob_10sec_crop.npz' : [13.22, 19.08],
-		# 'fil_59883_37405_244758056_FRB20220912a_0001_lob_10sec_crop.npz' : [9.26, 15.75, 22.61, 27.94], # ms, burst B10 of Sheikh2023
-		# 'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [13.89, 21.78, 23.77, 30.29],
-		# 'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [10.36, 17.53],
-		# 'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [15.76, 9.83, 11.33],
-		# 'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [8.87, 16.52],
-		# 'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [24.77, 11.71, 18.6],
-		# 'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [16.19, 18.63],
-		# 'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [7.29, 9.04],
-		# 'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [24.2, 9.75, 15.75, 18.25, 22.06, 28.88],
-		# 'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [14.92, 10.64, 13.21, 18.24, 23.52],
-		# 'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [18.23, 13.54],
-		# 'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [9.82, 12.43, 16.71, 22.47, 25.0],
-		# 'fil_59900_22810_333515686_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [25.55, 9.26, 11.18, 12.41, 13.96, 19.4, 28.63, 32.97, 38.5],#[25.55, 9.12, 11.45, 14.42, 19.58, 32.97, 38.73],
-		# 'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [10.07, 13.97, 19.11],
-		# 'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [14.94, 18.1, 21.34, 24.45, 28.25, 30.53],
-		# 'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [17.25, 22.56, 24.84, 31.28],
-		# 'fil_59907_21795_370367797_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [8.56, 10.56],
-		# 'fil_59914_20362_407194396_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59915_24158_412699523_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59916_25852_418076354_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59920_19510_438783020_FRB20220912a_0001_lob_10sec_crop.npz' : [],
-		# 'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [8.23, 10.65],
-		# 'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [24.58, 11.67],
-		# 'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : [10.4, 18.72, 23.7, 25.62, 29.36, 32.75, 37.5]
+		'fil_59875_21343_201590209_FRB20220912a_0001_lob_10sec_crop.npz' : [6.95, 7.41],
+		'fil_59880_21831_227987182_FRB20220912a_0001_lob_10sec_crop.npz' : [8.07, 29.91, 32.43, 34.89, 36.08, 41.7],
+		'fil_59880_32784_228655700_FRB20220912a_0001_lob_10sec_crop.npz' : [7.86, 12.5, 13.84],
+		'fil_59880_34610_228767150_FRB20220912a_0001_lob_10sec_crop.npz' : [9.34, 10.95, 17.5],
+		'fil_59882_22768_238591247_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59882_39198_239594055_FRB20220912a_0001_lob_10sec_crop.npz' : [10.43, 7.35],
+		'fil_59883_08510_242994445_FRB20220912a_0001_lob_10sec_crop.npz' : [13.22, 19.08],
+		'fil_59883_37405_244758056_FRB20220912a_0001_lob_10sec_crop.npz' : [9.26, 15.75, 22.61, 27.94], # ms, burst B10 of Sheikh2023
+		'fil_59887_29267_265355102_FRB20220912a_0001_lob_10sec_crop.npz' : [13.89, 21.78, 23.77, 30.29],
+		'fil_59887_36569_265800781_FRB20220912a_0001_lob_10sec_crop.npz' : [10.36, 17.53],
+		'fil_59889_10344_274747009_FRB20220912a_0001_lob_10sec_crop.npz' : [15.76, 9.83, 11.33],
+		'fil_59889_32251_276084106_FRB20220912a_0001_lob_10sec_crop.npz' : [8.87, 16.52],
+		'fil_59890_26883_281029907_FRB20220912a_0001_lob_10sec_crop.npz' : [24.77, 11.71, 18.6],
+		'fil_59890_30534_281252746_FRB20220912a_0001_lob_10sec_crop.npz' : [16.19, 18.63],
+		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_1443.npz' : [7.29, 9.04],
+		'fil_59891_25899_286243286_FRB20220912a_0001_lob_10sec_crop_967.npz' : [24.2, 9.75, 15.75, 18.25, 22.06, 28.88],
+		'fil_59897_05894_316662902_FRB20220912a_0001_lob_10sec_crop.npz' : [14.92, 10.64, 13.21, 18.24, 23.52],
+		'fil_59898_37955_323893188_FRB20220912a_0001_lob_10sec_crop.npz' : [18.23, 13.54],
+		'fil_59900_11856_332847106_FRB20220912a_0001_lob_10sec_crop.npz' : [9.82, 12.43, 16.71, 22.47, 25.0],
+		'fil_59900_22810_333515686_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59901_37464_339683532_FRB20220912a_0001_lob_10sec_crop.npz' : [25.55, 9.26, 11.18, 12.41, 13.96, 19.4, 28.63, 32.97, 38.5],#[25.55, 9.12, 11.45, 14.42, 19.58, 32.97, 38.73],
+		'fil_59903_09465_348521484_FRB20220912a_0001_lob_10sec_crop.npz' : [10.07, 13.97, 19.11],
+		'fil_59903_20417_349189941_FRB20220912a_0001_lob_10sec_crop.npz' : [14.94, 18.1, 21.34, 24.45, 28.25, 30.53],
+		'fil_59904_22142_354568664_FRB20220912a_0001_lob_10sec_crop.npz' : [17.25, 22.56, 24.84, 31.28],
+		'fil_59907_21795_370367797_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59912_25267_396946899_FRB20220912a_0001_lob_10sec_crop.npz' : [8.56, 10.56],
+		'fil_59914_20362_407194396_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59915_24158_412699523_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59916_25852_418076354_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59920_19510_438783020_FRB20220912a_0001_lob_10sec_crop.npz' : [],
+		'fil_59930_10525_490968994_FRB20220912a_0001_lob_10sec_crop.npz' : [8.23, 10.65],
+		'fil_59931_23281_497020996_FRB20220912a_0001_lob_10sec_crop.npz' : [24.58, 11.67],
+		'fil_59933_14701_507044189_FRB20220912a_0001_lob_10sec_crop.npz' : [10.4, 18.72, 23.7, 25.62, 29.36, 32.75, 37.5]
 	}
 
 	results = []
@@ -743,26 +838,17 @@ if __name__ == '__main__':
 		burst_results = measureburst(
 			filename,
 			xos=xos,
+			downfactors=(6,2),
+			subtractbg=True,
 			outdir='sheikh/',
 			show=True,
 			show_components=False,
-			save=save
+			save=save,
 		)
 		for row in burst_results:
 			results.append(row)
 
-	resultsdf = pd.DataFrame(data=results, columns=[
-		'name',
-		'DM',
-		'center_f (MHz)',
-		'center_f_err',
-		'duration (ms)',
-		'duration_err',
-		'bandwidth (MHz)',
-		'bandwidth_err',
-		'dtdnu (ms/MHz)',
-		'dtdnu_err'
-	]).set_index('name')
+	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
 
 	fileout = f"sheikh/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
 	if save:
