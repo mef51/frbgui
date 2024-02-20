@@ -149,17 +149,6 @@ def fitgauss(data, duration):
 	finally:
 		return popt, pcov
 
-def fit4gauss(data, duration, xos):
-	if len(xos) != 4:
-		raise "Please specify 4 peak times"
-	if np.max(data) != 0:
-		data = data / np.max(data) # normalize
-	x = np.linspace(0, duration, num=len(data))
-	sigma = np.sqrt(abs(sum(data*(x-np.mean(xos))**2)/sum(data)))/4
-	guess = [*[np.max(data)]*4, *xos, *[sigma]*4]
-	popt, pcov = scipy.optimize.curve_fit(gauss4_model, x, data, p0=guess)
-	return popt, pcov
-
 def fitgaussmix(data, duration, xos):
 	n = len(xos) # Number of components
 	if np.max(data) != 0:
@@ -250,6 +239,7 @@ def plotburst(data, band, retfig=False, extent=None):
 def measureburst(
 	filename,
 	xos=[],
+	ddm=0.,
 	downfactors=(1,1),
 	subtractbg=False,
 	crop=None,
@@ -271,8 +261,11 @@ def measureburst(
 	of components to fit for is equal to ``len(xos)``
 
 	Args:
-		filename (str): filename to npz of burst waterfall
-		xos (List[float] or 2-tuple of List[float]): list of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to split the waterfall
+		filename (str): filename to npz of a *dedispersed* burst waterfall
+		xos (List[float] or 2-tuple of List[float]): List of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall. Only supports one cut at the moment.
+		ddm (float): \\(\\Delta\\) DM value to apply to the dedispersed waterfall (pc/cm^3).
+		downfactors (tuple[int]): 2-tuple of factors to downsample by in frequency and time (respectively)
+		subtractbg (bool): whether or not to perform a second background subtraction on subbursts
 		outdir (str): string of output folder for figures
 		crop (tuple[int]): pair of indices in time to crop the waterfall
 		mask (List[int]): frequency indices to mask
@@ -297,6 +290,16 @@ def measureburst(
 	bname = filename.split('/')[-1].split('.')[0]
 	data = np.load(filename, allow_pickle=True)
 	wfall = data['wfall']
+
+	DM = data['DM'] + ddm
+	wfall = driftrate.dedisperse(
+		wfall,
+		ddm,
+		min(data['dfs']),
+		data['bandwidth']/wfall.shape[0],
+		1000*data['duration']/wfall.shape[1]
+	)
+
 	for mask in masks:
 		wfall[mask] = 0
 	wfall = driftrate.subtractbg(wfall, 0, int(wfall.shape[1]*0.1))
@@ -441,44 +444,45 @@ def measureburst(
 			dtdnu, dtdnu_err = 0, 0 # no measurement
 
 		# Sub-burst plot
-		subfig, subaxs = plotburst(
-			subfall,
-			subband.reshape(-1, 4).mean(axis=1),
-			retfig=True,
-			extent=[
-				0,
-				res_time_ms*subfall.shape[1],
-				freqs_bin0,
-				freqs_bin0 + res_freq*wfall.shape[0]
-			]
-		)
-		subcolors = [(1, 1, 1, alpha) for alpha in np.clip(subdf['amp'], 0, 1)]
-		subaxs['W'].scatter(
-			(subdf[tpoint]),
-			(subdf['freqs']),
-			c=subcolors,
-			marker='o',
-			s=25
-		)
-		subaxs['W'].set_xlim(0, res_time_ms*subfall.shape[1])
-		subaxs['W'].set_ylim(freqs_bin0, freqs_bin0 + res_freq*wfall.shape[0])
-		subtimes = np.linspace(0, res_time_ms*subfall.shape[1], num=1000)
-		if dtdnu != 0:
-			subaxs['W'].plot(
-				subtimes,
-				(1/dtdnu)*(subtimes-subpktime),
-				'w--',
-				label=f'{dtdnu=:.2e} ms/MHz'
+		if show_components:
+			subfig, subaxs = plotburst(
+				subfall,
+				subband.reshape(-1, 4).mean(axis=1),
+				retfig=True,
+				extent=[
+					0,
+					res_time_ms*subfall.shape[1],
+					freqs_bin0,
+					freqs_bin0 + res_freq*wfall.shape[0]
+				]
 			)
-		subaxs['W'].legend()
+			subcolors = [(1, 1, 1, alpha) for alpha in np.clip(subdf['amp'], 0, 1)]
+			subaxs['W'].scatter(
+				(subdf[tpoint]),
+				(subdf['freqs']),
+				c=subcolors,
+				marker='o',
+				s=25
+			)
+			subaxs['W'].set_xlim(0, res_time_ms*subfall.shape[1])
+			subaxs['W'].set_ylim(freqs_bin0, freqs_bin0 + res_freq*wfall.shape[0])
+			subtimes = np.linspace(0, res_time_ms*subfall.shape[1], num=1000)
+			if dtdnu != 0:
+				subaxs['W'].plot(
+					subtimes,
+					(1/dtdnu)*(subtimes-subpktime),
+					'w--',
+					label=f'{dtdnu=:.2e} ms/MHz'
+				)
+			subaxs['W'].legend()
 
-		subaxs['B'].plot(
-			gauss_model(freqs, *subband_popt),
-			freqs
-		)
+			subaxs['B'].plot(
+				gauss_model(freqs, *subband_popt),
+				freqs
+			)
+			plt.show()
+			plt.close()
 		subbandmodels.append(gauss_model(freqs, *subband_popt))
-		if show_components: plt.show() # show figure of the cutout sub-burst
-		plt.close()
 
 		# transform times to full waterfall times
 		if len(cuts) == 1:
@@ -542,6 +546,15 @@ def measureburst(
 		extent=extent,
 		norm='linear',
 		vmax=np.quantile(wfall, 0.999),
+	)
+	ax_wfall.annotate(
+		f"$DM =$ {DM} pc/cm$^3$",
+		xy=(0.05, 0.925),
+		xycoords='axes fraction',
+		color='white',
+		weight='black',
+		size=10,
+		bbox={"boxstyle":"round"}
 	)
 	if len(subdf) > 0:
 		ax_wfall.scatter( # component fit points
@@ -742,41 +755,31 @@ results_columns = [
 
 if __name__ == '__main__': ## 'snelders__main__'
 	prefix = '/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/'
+
 	files = {
-		'burst_B06_a.npz' : [],
-		'burst_B06_b.npz' : [],
-		'burst_B07.npz'   : [],
-		'burst_B10.npz'   : [],
-		'burst_B30.npz'   : [],
-		'burst_B31_a.npz' : [],
-		'burst_B31_b.npz' : [],
-		'burst_B38.npz'   : [],
-		'burst_B43.npz'   : [],
-		'burst_B44.npz'   : [],
+		'burst_B06_a.npz' : {},
+		'burst_B06_b.npz' : {'crop': (0,200)},
+		'burst_B07.npz'   : {},
+		'burst_B10.npz'   : {},
+		'burst_B30.npz'   : {},
+		'burst_B31_a.npz' : {},
+		'burst_B31_b.npz' : {},
+		'burst_B38.npz'   : {},
+		'burst_B43.npz'   : {'masks': [98]},
+		'burst_B44.npz'   : {},
 	}
 
-	save = True
+	save = False
 	results = []
-	for filename, xos in files.items():
-		crop = None
-		if filename == 'burst_B06_b.npz':
-			crop = (0, 200)
-
-		masks = []
-		if filename == 'burst_B43.npz':
-			masks = [98]
-
+	for filename, kwargs in files.items():
 		filename = f'{prefix}{filename}'
 		burst_results = measureburst(
 			filename,
-			xos=xos,
-			subtractbg=False,
-			crop=crop,
-			masks=masks,
 			outdir='snelders/',
 			show=True,
 			show_components=False,
-			save=save
+			save=save,
+			**kwargs
 		)
 		for row in burst_results:
 			results.append(row)
