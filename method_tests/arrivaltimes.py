@@ -239,7 +239,7 @@ def plotburst(data, band, retfig=False, extent=None):
 def measureburst(
 	filename,
 	xos=[],
-	ddm=0.,
+	targetDM=None,
 	downfactors=(1,1),
 	subtractbg=False,
 	crop=None,
@@ -262,16 +262,16 @@ def measureburst(
 
 	Args:
 		filename (str): filename to npz of a *dedispersed* burst waterfall
-		xos (List[float] or 2-tuple of List[float]): List of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall. Only supports one cut at the moment.
-		ddm (float): \\(\\Delta\\) DM value to apply to the dedispersed waterfall (pc/cm^3).
-		downfactors (tuple[int]): 2-tuple of factors to downsample by in frequency and time (respectively)
-		subtractbg (bool): whether or not to perform a second background subtraction on subbursts
-		outdir (str): string of output folder for figures
-		crop (tuple[int]): pair of indices in time to crop the waterfall
-		mask (List[int]): frequency indices to mask
-		show (bool): if True show interactive figure window for each file
-		show_components (bool): if True show figure window for each sub-burst
-		save (bool): if True save a figure displaying the measurements.
+		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall. Only supports one cut at the moment.
+		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at. Default is to perform the measurement at the DM of the npz file.
+		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
+		subtractbg (bool, optional): whether or not to perform a second background subtraction on subbursts
+		outdir (str, optional): string of output folder for figures
+		crop (tuple[int], optional): pair of indices in time to crop the waterfall
+		mask (List[int], optional): frequency indices to mask
+		show (bool, optional): if True show interactive figure window for each file
+		show_components (bool, optional): if True show figure window for each sub-burst
+		save (bool, optional): if True save a figure displaying the measurements.
 	"""
 	cuts = []
 	if type(xos) == tuple:
@@ -291,14 +291,17 @@ def measureburst(
 	data = np.load(filename, allow_pickle=True)
 	wfall = data['wfall']
 
-	DM = data['DM'] + ddm
-	wfall = driftrate.dedisperse(
-		wfall,
-		ddm,
-		min(data['dfs']),
-		data['bandwidth']/wfall.shape[0],
-		1000*data['duration']/wfall.shape[1]
-	)
+	if targetDM:
+		ddm = targetDM - data['DM']
+		wfall = driftrate.dedisperse(
+			wfall,
+			ddm,
+			min(data['dfs']),
+			data['bandwidth']/wfall.shape[0],
+			1000*data['duration']/wfall.shape[1]
+		)
+	else:
+		targetDM = data['DM']
 
 	for mask in masks:
 		wfall[mask] = 0
@@ -502,7 +505,7 @@ def measureburst(
 		rowname = bname if len(xos) == 1 else f'{bname}_{subburst_suffixes[xos.index(xosi)]}'
 		results.append([
 			rowname,
-			float(data['DM']),
+			targetDM,
 			pkfreq,
 			pkfreq_err,
 			sigma,
@@ -548,7 +551,7 @@ def measureburst(
 		vmax=np.quantile(wfall, 0.999),
 	)
 	ax_wfall.annotate(
-		f"$DM =$ {DM} pc/cm$^3$",
+		f"$DM =$ {targetDM} pc/cm$^3$",
 		xy=(0.05, 0.925),
 		xycoords='axes fraction',
 		color='white',
@@ -757,7 +760,7 @@ if __name__ == '__main__': ## 'snelders__main__'
 	prefix = '/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/'
 
 	files = {
-		'burst_B06_a.npz' : {},
+		'burst_B06_a.npz' : {'targetDM': 560.105},
 		'burst_B06_b.npz' : {'crop': (0,200)},
 		'burst_B07.npz'   : {},
 		'burst_B10.npz'   : {},
