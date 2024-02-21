@@ -791,6 +791,26 @@ def readRegions(resultsdf):
 			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
 	return regionsobj
 
+def scilabel(num, err):
+	"""Utility for pretty scientific notation labels
+
+	e.g. (6.0 +/- 0.3) $\\times 10^2$ MHz/ms
+
+	Args:
+		num (float): the number to label
+		err (float): the uncertainty of ``num``
+
+	Returns:
+		str: the formatted label string
+	"""
+	sign = '' if num > 0 else '-'
+	num = abs(num)
+	return (
+		f'({sign}{num/(10**np.floor(np.log10(num))):.1f}'
+		f'$\\pm$ {err/(10**np.floor(np.log10(num))):.1f})'
+		f'$\\times 10^{{{np.floor(np.log10(num)):.0f}}}$'
+	)
+
 def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=1,
 				snrLines=False, show=False):
 	"""Given a results CSV produced by FRBGui will plot fit results by burst at each DM
