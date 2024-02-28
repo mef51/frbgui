@@ -20,6 +20,11 @@ def line_model(nu, dtdnu):
 def gauss_model(x, a, xo, sigma):
 	return a*np.exp(-(x-xo)**2/(2*(sigma**2)))
 
+def smallestdivisor(n):
+	for i in range(2, n):
+		if n % i == 0:
+			return i
+
 ###### N component models. Can these be generated?
 # See GaussianMixture models (sklearn, lmfit, general) maybe
 def gaussmix_model(x, *p):
@@ -262,12 +267,17 @@ def measureburst(
 
 	Args:
 		filename (str): filename to npz of a *dedispersed* burst waterfall
-		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers. Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall. Only supports one cut at the moment.
-		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at. Default is to perform the measurement at the DM of the npz file.
+		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers.
+			Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall.
+			Only supports one cut at the moment.
+		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at.
+			Default is to perform the measurement at the DM of the npz file.
 		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
-		subtractbg (bool, optional): whether or not to perform a second background subtraction on subbursts
+		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
+			By default will do a background subtraction using 10% of channels on the whole waterfall.
+			Pass `(False, False)` to skip both rounds of background subtraction.
 		outdir (str, optional): string of output folder for figures
-		crop (tuple[int], optional): pair of indices in time to crop the waterfall
+		crop (tuple[int], optional): pair of indices to crop the waterfall in time
 		mask (List[int], optional): frequency indices to mask
 		show (bool, optional): if True show interactive figure window for each file
 		show_components (bool, optional): if True show figure window for each sub-burst
@@ -285,6 +295,11 @@ def measureburst(
 		raise "Error: xos must be a list"
 
 	xos = sorted(xos)
+
+	presubtractbg = True
+	if type(subtractbg) == tuple:
+		presubtractbg = subtractbg[0]
+		subtractbg = subtractbg[1]
 
 	results = []
 	bname = filename.split('/')[-1].split('.')[0]
@@ -305,7 +320,8 @@ def measureburst(
 
 	for mask in masks:
 		wfall[mask] = 0
-	wfall = driftrate.subtractbg(wfall, 0, int(wfall.shape[1]*0.1))
+	if presubtractbg:
+		wfall = driftrate.subtractbg(wfall, 0, int(wfall.shape[1]*0.1))
 	if type(crop) == tuple and len(crop) == 2:
 		wfall = wfall[..., crop[0]:crop[1]]
 	wfall = driftrate.subsample(
@@ -628,6 +644,8 @@ def measureburst(
 
 	### Summed Spectrum (summed over burst widths). Total and individual
 	downband = 4
+	if len(bandpass) % downband != 0:
+		downband = smallestdivisor(len(bandpass))
 	bandpass_down = bandpass.reshape(-1, downband).mean(axis=1)
 	bandpass_down = bandpass_down / np.max(bandpass_down)
 	axs['S'].stairs(
@@ -724,7 +742,7 @@ def measureburst(
 
 	if show: plt.show()
 	if save:
-		if '/' in outdir or outdir == '':
+		if outdir[-1] == '/' or outdir == '':
 			outname = f"{outdir}{bname}.png"
 		else:
 			outname = f"{outdir}/{bname}.png"
@@ -733,6 +751,11 @@ def measureburst(
 
 	plt.close()
 	return results
+
+def listnpzs(path):
+	files = glob.glob(prefix+'*.npz')
+	[print(f) for f in sorted(files)]
+	exit()
 
 results_columns = [
 	'name',
@@ -750,13 +773,117 @@ results_columns = [
 # if __name__ == '__main__':
 # 	files = glob.glob('/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/*.npz')
 # 	files = glob.glob('/Users/mchamma/dev/frbdata/FRB20220912A/sheikh2023/npzs/*.npz')
+#	files = glob.glob(prefix+'*.npz')
 # 	[print(f) for f in sorted(files)]
 # 	exit()
 
 ########################################
 ########################################
 
-if __name__ == '__main__': ## 'snelders__main__'
+if __name__ == 'hewitt__main__': ## 'hewitt__main__'
+	prefix = '/Users/mchamma/dev/frbdata/FRB20220912A/hewitt2023/npzs/'
+
+	files = {
+		'B1_b01.frbgui.npz' : {},
+		'B1_b02.frbgui.npz' : {},
+		'B1_b03.frbgui.npz' : {},
+		'B1_b04.frbgui.npz' : {},
+		'B1_b05.frbgui.npz' : {},
+		'B1_b06.frbgui.npz' : {},
+		'B1_b07.frbgui.npz' : {},
+		'B1_b08.frbgui.npz' : {},
+		'B1_b09.frbgui.npz' : {},
+		'B1_b10.frbgui.npz' : {},
+		'B1_b11.frbgui.npz' : {},
+		'B1_b12.frbgui.npz' : {},
+		'B1_b13.frbgui.npz' : {},
+		'B1_b14.frbgui.npz' : {},
+		'B1_b15.frbgui.npz' : {},
+		'B1_b16.frbgui.npz' : {},
+		'B1_b17.frbgui.npz' : {},
+		'B1_b18.frbgui.npz' : {},
+		'B1_b19.frbgui.npz' : {},
+		'B1_b20.frbgui.npz' : {},
+		'B1_b21.frbgui.npz' : {},
+		'B1_b22.frbgui.npz' : {},
+		'B1_b23.frbgui.npz' : {},
+		'B1_b24.frbgui.npz' : {},
+		'B1_b25.frbgui.npz' : {},
+		'B1_b26.frbgui.npz' : {},
+		'B1_b27.frbgui.npz' : {},
+		'B1_b28.frbgui.npz' : {},
+		'B1_b29.frbgui.npz' : {},
+		'B1_b30.frbgui.npz' : {},
+		'B1_b31.frbgui.npz' : {},
+		'B1_b32.frbgui.npz' : {},
+		'B1_b33.frbgui.npz' : {},
+		'B1_b34.frbgui.npz' : {},
+		'B1_b35.frbgui.npz' : {},
+		'B1_b36.frbgui.npz' : {},
+		'B1_b37.frbgui.npz' : {},
+		'B1_b38.frbgui.npz' : {},
+		'B1_b39.frbgui.npz' : {},
+		'B1_b40.frbgui.npz' : {},
+		'B1_b41.frbgui.npz' : {},
+		'B1_b42.frbgui.npz' : {},
+		'B2_b01.frbgui.npz' : {},
+		'B2_b02.frbgui.npz' : {},
+		'B2_b03.frbgui.npz' : {},
+		'B2_b04.frbgui.npz' : {},
+		'B2_b05.frbgui.npz' : {},
+		'B2_b06.frbgui.npz' : {},
+		'B2_b07.frbgui.npz' : {},
+		'B2_b08.frbgui.npz' : {},
+		'B2_b09.frbgui.npz' : {},
+		'B2_b10.frbgui.npz' : {},
+		'B2_b11.frbgui.npz' : {},
+		'B2_b12.frbgui.npz' : {},
+		'B2_b13.frbgui.npz' : {},
+		'B2_b14.frbgui.npz' : {},
+		'B2_b15.frbgui.npz' : {},
+		'B2_b16.frbgui.npz' : {},
+		'B2_b17.frbgui.npz' : {},
+		'B2_b18.frbgui.npz' : {},
+		'B2_b19.frbgui.npz' : {},
+		'B2_b20.frbgui.npz' : {},
+		'B2_b21.frbgui.npz' : {},
+		'B2_b22.frbgui.npz' : {},
+		'B3_b01.frbgui.npz' : {},
+		'B3_b02.frbgui.npz' : {},
+		'B3_b03.frbgui.npz' : {},
+		'B3_b04.frbgui.npz' : {},
+		'B3_b05.frbgui.npz' : {},
+		'B3_b06.frbgui.npz' : {},
+		'B3_b07.frbgui.npz' : {},
+		'B3_b08.frbgui.npz' : {},
+	}
+
+	save = True
+	results = []
+	for filename, kwargs in files.items():
+		filename = f'{prefix}{filename}'
+		burst_results = measureburst(
+			filename,
+			outdir='/Users/mchamma/dev/frbdata/FRB20220912A/hewitt2023/measurements/',
+			show=False,
+			subtractbg=(False,False),
+			save=save,
+			**kwargs
+		)
+		for row in burst_results:
+			results.append(row)
+
+	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
+
+	fileout = f"/Users/mchamma/dev/frbdata/FRB20220912A/hewitt2023/measurements/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	if save:
+		resultsdf.to_csv(fileout)
+		print(f"Saved {fileout}.")
+
+########################################
+########################################
+
+if __name__ == 'snelders__main__': ## 'snelders__main__'
 	prefix = '/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/'
 
 	files = {
