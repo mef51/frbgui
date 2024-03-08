@@ -14,8 +14,11 @@ from driftrate import scilabel, subburst_suffixes
 
 # Based on https://github.com/mef51/subdriftlaw/blob/master/ArrivalTimes.ipynb
 
-def line_model(nu, dtdnu):
+def zero_line_model(nu, dtdnu):
 	return dtdnu * nu
+
+def line_model(nu, dtdnu, nu0dtaudnu):
+	return dtdnu * nu + nu0dtaudnu
 
 def gauss_model(x, a, xo, sigma):
 	return a*np.exp(-(x-xo)**2/(2*(sigma**2)))
@@ -161,8 +164,13 @@ def fitgaussmix(data, duration, xos):
 	x = np.linspace(0, duration, num=len(data))
 	sigmas = np.sqrt(abs(sum(data*(x-np.mean(xos))**2)/sum(data)))/4
 	guess = [*[np.max(data)]*n, *xos, *[sigmas]*n]
-	popt, pcov = scipy.optimize.curve_fit(gaussmix_model, x, data, p0=guess)
-	return popt, pcov
+	try:
+		popt, pcov = scipy.optimize.curve_fit(gaussmix_model, x, data, p0=guess)
+	except RuntimeError as e:
+		popt = [0]*3*n
+		pcov = [0]*3*n
+	finally:
+		return popt, pcov
 
 def fitrows(wfall, dt, freqs, plot=False):
 	fitdata = np.zeros((wfall.shape[0], 10))
@@ -188,17 +196,6 @@ def fitrows(wfall, dt, freqs, plot=False):
 		'xo_err',
 		'sigma_err'
 	])
-
-def measuredtdnu(pointdf, xo, tpoint='tstart'):
-	dtdnu, pcov = scipy.optimize.curve_fit(
-		line_model,
-		pointdf['freqs'],
-		pointdf[tpoint] - xo,
-		sigma=pointdf[f'{tpoint}_err'],
-		absolute_sigma=True,
-	)
-	dtdnu, dtdnu_err = dtdnu[0], np.sqrt(np.diag(pcov))[0]
-	return dtdnu, dtdnu_err
 
 def plotburst(data, band, retfig=False, extent=None):
 	fig, axs = plt.subplot_mosaic(
@@ -278,7 +275,7 @@ def measureburst(
 			Pass `(False, False)` to skip both rounds of background subtraction.
 		outdir (str, optional): string of output folder for figures
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
-		mask (List[int], optional): frequency indices to mask
+		masks (List[int], optional): frequency indices to mask
 		show (bool, optional): if True show interactive figure window for each file
 		show_components (bool, optional): if True show figure window for each sub-burst
 		save (bool, optional): if True save a figure displaying the measurements.
@@ -356,12 +353,13 @@ def measureburst(
 
 	tmix_popt, tmix_pcov = fitgaussmix(tseries, duration, xos=xos)
 	tmix_perr = np.sqrt(np.diag(tmix_pcov))
+	if len(tmix_perr.shape) == 2: tmix_perr = np.diag(tmix_perr) # handles when pcov is nans
 	tmix_amps   = tmix_popt[:n_bursts]
 	tmix_xos    = tmix_popt[n_bursts:n_bursts*2]
 	tmix_sigmas = tmix_popt[n_bursts*2:n_bursts*3]
 	tmix_sigma_errs = tmix_perr[n_bursts*2:n_bursts*3]
 
-	xos = tmix_xos.tolist() # align to fit component centers
+	xos = tmix_xos if type(tmix_xos) == list else tmix_xos.tolist() # align to fit component centers
 
 	subfalls = []
 	subbands = []
@@ -393,6 +391,8 @@ def measureburst(
 
 		if xoi-s1 < 0:
 			subband = wfall[..., :int(xoi+s1)].mean(axis=1)
+		elif xoi-s1 > wfall.shape[1]:
+			subband = wfall.mean(axis=1) # probably bad fit, take it all as a fallback
 		else:
 			subband = wfall[..., int(xoi-s1):int(xoi+s1)].mean(axis=1) # sum only 1 sigma from burst peak
 
@@ -404,7 +404,7 @@ def measureburst(
 		subbands.append(subband)
 
 	#### Fitting
-	dtdnus, subdfs = [], []
+	dtdnus, intercepts, subdfs = [], [], []
 	subbandpopts, subbandmodels = [], []
 	colors = cycle([
 		'white',
@@ -457,10 +457,25 @@ def measureburst(
 				(subdf['freqs'] < pkfreq+3*bwidth)
 			]
 
-		if len(subdf) != 0:
-			dtdnu, dtdnu_err = measuredtdnu(subdf, subpktime)
-		else:
-			dtdnu, dtdnu_err = 0, 0 # no measurement
+		# Measure dt/dnu
+		if len(subdf) > 1: # only fit a line if more than 1 point
+			popt, pcov = scipy.optimize.curve_fit(
+				line_model,
+				subdf['freqs'],
+				subdf[tpoint] - subpktime,
+				sigma=subdf[f'{tpoint}_err'],
+				absolute_sigma=True,
+			)
+			perr = np.sqrt(np.diag(pcov))
+			dtdnu, dtdnu_err = popt[0], perr[0]
+			nu0dtaudnu, nu0dtaudnu_err = popt[1], perr[1]
+
+			# print(f"{dtdnu = :.5f} +/- {dtdnu_err:.5f} ms/MHz")
+			# print(f"{nu0dtaudnu = :.5f} +/- {nu0dtaudnu_err:.5f} ms")
+		else: # no measurement
+			dtdnu, dtdnu_err = 0, 0
+			nu0dtaudnu, nu0dtaudnu_err = 0, 0
+
 
 		# Sub-burst plot
 		if show_components:
@@ -514,6 +529,7 @@ def measureburst(
 		subdf['color'] = next(colors) # assign color to points
 
 		dtdnus.append((dtdnu, dtdnu_err))
+		intercepts.append((nu0dtaudnu, nu0dtaudnu_err))
 		subbandpopts.append(subband_popt)
 		subdfs.append(subdf)
 		# print(f"{dtdnu = } +/- {dtdnu_err = }")
@@ -529,7 +545,9 @@ def measureburst(
 			bwidth,
 			bwidth_err,
 			dtdnu,
-			dtdnu_err
+			dtdnu_err,
+			nu0dtaudnu,
+			nu0dtaudnu_err
 		])
 
 	subdf = pd.concat(subdfs)
@@ -567,7 +585,7 @@ def measureburst(
 		vmax=np.quantile(wfall, 0.999),
 	)
 	ax_wfall.annotate(
-		f"$DM =$ {targetDM} pc/cm$^3$",
+		f"$DM =$ {targetDM:.3f} pc/cm$^3$",
 		xy=(0.05, 0.925),
 		xycoords='axes fraction',
 		color='white',
@@ -589,11 +607,11 @@ def measureburst(
 	ax_wfall.set_ylabel("Frequency (MHz)")
 
 	# component lines
-	for (dtdnu, dtdnu_err), xoi in zip(dtdnus, xos):
+	for (dtdnu, dtdnu_err), (tb, tb_err), xoi in zip(dtdnus, intercepts, xos):
 		if dtdnu != 0:
 			ax_wfall.plot(
 				times_ms-pktime,
-				(1/dtdnu)*(times_ms-xoi),
+				(1/dtdnu)*(times_ms-xoi) - tb/dtdnu,
 				'w--',
 				alpha=0.75,
 				# label=f'$dt/d\\nu = $ {dtdnu:.2e} $\\pm$ {dtdnu_err:.2e}'
@@ -696,10 +714,10 @@ def measureburst(
 		zorder=-1,
 		color='#888888'
 	)
-	ax_slope.plot(freqs, dtdnu*freqs, 'k--')
+	ax_slope.plot(freqs, dtdnu*freqs+nu0dtaudnu, 'k--')
 	ax_slope.annotate(
-		f"$dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz",
-		xy=(0.675, 0.8),
+		f"$dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz \n$t_b =$ {scilabel(nu0dtaudnu, nu0dtaudnu_err)} ms",
+		xy=(0.7, 0.6),
 		xycoords='axes fraction',
 		color='white',
 		weight='black',
@@ -753,7 +771,8 @@ def measureburst(
 	return results
 
 def listnpzs(path):
-	files = glob.glob(prefix+'*.npz')
+	""" List all npz files in path """
+	files = glob.glob(path+'*.npz')
 	[print(f) for f in sorted(files)]
 	exit()
 
@@ -767,7 +786,9 @@ results_columns = [
 	'bandwidth (MHz)',
 	'bandwidth_err',
 	'dtdnu (ms/MHz)',
-	'dtdnu_err'
+	'dtdnu_err',
+	'tb (ms)', # nu0dtaudnu
+	'tb_err'
 ]
 
 # if __name__ == '__main__':
@@ -864,7 +885,7 @@ if __name__ == 'hewitt__main__': ## 'hewitt__main__'
 		filename = f'{prefix}{filename}'
 		burst_results = measureburst(
 			filename,
-			outdir='/Users/mchamma/dev/frbdata/FRB20220912A/hewitt2023/measurements/',
+			outdir='measurements/frb20220912A/hewitt2023/',
 			show=False,
 			subtractbg=(False,False),
 			save=save,
@@ -875,7 +896,7 @@ if __name__ == 'hewitt__main__': ## 'hewitt__main__'
 
 	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
 
-	fileout = f"/Users/mchamma/dev/frbdata/FRB20220912A/hewitt2023/measurements/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	fileout = f"measurements/frb20220912A/hewitt2023/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
 	if save:
 		resultsdf.to_csv(fileout)
 		print(f"Saved {fileout}.")
@@ -905,7 +926,7 @@ if __name__ == 'snelders__main__': ## 'snelders__main__'
 		filename = f'{prefix}{filename}'
 		burst_results = measureburst(
 			filename,
-			outdir='snelders/',
+			outdir='measurements/frb20121102A/snelders2023/',
 			show=True,
 			show_components=False,
 			save=save,
@@ -916,7 +937,7 @@ if __name__ == 'snelders__main__': ## 'snelders__main__'
 
 	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
 
-	fileout = f"snelders/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	fileout = f"measurements/frb20121102A/snelders2023/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
 	if save:
 		resultsdf.to_csv(fileout)
 		print(f"Saved {fileout}.")
@@ -973,7 +994,7 @@ if __name__ == 'sheikh__main__': ## 'sheikh__main__'
 			xos=xos,
 			downfactors=(6,2),
 			subtractbg=True,
-			outdir='sheikh/',
+			outdir='measurements/frb20220912A/sheikh2024/',
 			show=True,
 			show_components=False,
 			save=save,
@@ -983,8 +1004,9 @@ if __name__ == 'sheikh__main__': ## 'sheikh__main__'
 
 	resultsdf = pd.DataFrame(data=results, columns=results_columns).set_index('name')
 
-	fileout = f"sheikh/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
+	fileout = f"measurements/frb20220912A/sheikh2024/results_{datetime.now().strftime('%b-%d-%Y')}.csv"
 	if save:
 		resultsdf.to_csv(fileout)
 		print(f"Saved {fileout}.")
+
 
