@@ -28,111 +28,13 @@ def smallestdivisor(n):
 		if n % i == 0:
 			return i
 
-###### N component models. Can these be generated?
-# See GaussianMixture models (sklearn, lmfit, general) maybe
+# N component model
 def gaussmix_model(x, *p):
-	n = len(p)/3
-	if n == 1:
-		return gauss_model(x, *p)
-	if n == 2:
-		a1, a2, xo1, xo2, sigma1, sigma2 = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2)
-		)
-	if n == 3:
-		a1, a2, a3, xo1, xo2, xo3, sigma1, sigma2, sigma3 = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3)
-		)
-	if n == 4:
-		a1, a2, a3, a4, xo1, xo2, xo3, xo4, sigma1, sigma2, sigma3, sigma4 = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4)
-		)
-	if n == 5:
-		( # this is a lot
-			a1, a2, a3, a4, a5,
-			xo1, xo2, xo3, xo4, xo5,
-			sigma1, sigma2, sigma3, sigma4, sigma5
-		) = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4) +
-			gauss_model(x, a5, xo5, sigma5)
-		)
-
-	if n == 6:
-		(
-			a1, a2, a3, a4, a5, a6,
-			xo1, xo2, xo3, xo4, xo5, xo6,
-			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6
-		) = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4) +
-			gauss_model(x, a5, xo5, sigma5) +
-			gauss_model(x, a6, xo6, sigma6)
-		)
-	if n == 7:
-		(
-			a1, a2, a3, a4, a5, a6, a7,
-			xo1, xo2, xo3, xo4, xo5, xo6, xo7,
-			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7
-		) = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4) +
-			gauss_model(x, a5, xo5, sigma5) +
-			gauss_model(x, a6, xo6, sigma6) +
-			gauss_model(x, a7, xo7, sigma7)
-		)
-	if n == 8:
-		(
-			a1, a2, a3, a4, a5, a6, a7, a8,
-			xo1, xo2, xo3, xo4, xo5, xo6, xo7, xo8,
-			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7, sigma8
-		) = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4) +
-			gauss_model(x, a5, xo5, sigma5) +
-			gauss_model(x, a6, xo6, sigma6) +
-			gauss_model(x, a7, xo7, sigma7) +
-			gauss_model(x, a8, xo8, sigma8)
-		)
-	if n == 9:
-		(
-			a1, a2, a3, a4, a5, a6, a7, a8, a9,
-			xo1, xo2, xo3, xo4, xo5, xo6, xo7, xo8, xo9,
-			sigma1, sigma2, sigma3, sigma4, sigma5, sigma6, sigma7, sigma8, sigma9
-		) = p
-		return (
-			gauss_model(x, a1, xo1, sigma1) +
-			gauss_model(x, a2, xo2, sigma2) +
-			gauss_model(x, a3, xo3, sigma3) +
-			gauss_model(x, a4, xo4, sigma4) +
-			gauss_model(x, a5, xo5, sigma5) +
-			gauss_model(x, a6, xo6, sigma6) +
-			gauss_model(x, a7, xo7, sigma7) +
-			gauss_model(x, a8, xo8, sigma8) +
-			gauss_model(x, a9, xo9, sigma9)
-		)
-
-########### End n-component models
+	n = len(p)//3
+	model = 0
+	for i in range(0, n): # stops at n-1
+		model += gauss_model(x, p[0*n+i], p[1*n+i], p[2*n+i])
+	return model
 
 def fitgauss(data, duration):
 	# use curve-fit (non-linear leastsq)
@@ -161,15 +63,29 @@ def fitgauss(data, duration):
 	finally:
 		return popt, pcov
 
-def fitgaussmix(data, duration, xos):
+def fitgaussmix(data, duration, xos, fix_xos=False):
 	n = len(xos) # Number of components
 	if np.max(data) != 0:
 		data = data / np.max(data) # normalize
 	x = np.linspace(0, duration, num=len(data))
 	sigmas = np.sqrt(abs(sum(data*(x-np.mean(xos))**2)/sum(data)))/4
+
 	guess = [*[np.max(data)]*n, *xos, *[sigmas]*n]
+	bounds = (-np.inf, np.inf)
+	if fix_xos:
+		bounds = (  # fix xos
+			[*[-np.inf]*n, *[xoi - 0.01 for xoi in xos], *[-np.inf]*n],
+			[*[np.inf]*n, *[xoi + 0.01 for xoi in xos], *[np.inf]*n]
+		)
+
 	try:
-		popt, pcov = scipy.optimize.curve_fit(gaussmix_model, x, data, p0=guess)
+		popt, pcov = scipy.optimize.curve_fit(
+			gaussmix_model,
+			x,
+			data,
+			p0=guess,
+			bounds=bounds
+		)
 	except RuntimeError as e:
 		popt = [0]*3*n
 		pcov = [0]*3*n
@@ -245,9 +161,13 @@ def plotburst(data, band, retfig=False, extent=None):
 def measureburst(
 	filename,
 	xos=[],
+	cuts=[],
+	fix_xos=False,
 	targetDM=None,
+	correctTimes=False,
 	downfactors=(1,1),
 	subtractbg=False,
+	bw_filter_factor=3,
 	crop=None,
 	masks=[],
 	outdir='',
@@ -270,32 +190,41 @@ def measureburst(
 		filename (str): filename to npz of a *dedispersed* burst waterfall
 		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers.
 			Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall.
-			Only supports one cut at the moment.
+			Using the ``cuts`` option instead is equivalent to using the 2 tuple option.
+		cuts (List[float], optional): List of times in ms to cut the waterfall. Useful for blended bursts.
+			User must make sure their cuts make sense (i.e. in between burst centers).
+			Typically, if one cut is needed, then all bursts should be cut as well even if well separated.
+		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
+			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
+			even if it appears completely absorbed in the integrated time series.
 		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at.
 			Default is to perform the measurement at the DM of the npz file.
+		correctTimes (bool, optional): Shift xos and cuts to account for dispersive shift
+			when applying a targetDM other than the burst DM
 		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
 		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
 			By default will do a background subtraction using 10% of channels on the whole waterfall.
 			Pass `(False, False)` to skip both rounds of background subtraction.
+		bw_filter_factor (int, optional): By default 3 $sigma$ of the burst bandwidth is applied as a spectral filter.
+			For bursts with lots of frequency structure this may be inadequate,
+			and this parameter can be used to override the filter width. It's recommended to try downsampling first.
 		outdir (str, optional): string of output folder for figures
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
-		masks (List[int], optional): frequency indices to mask
+		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling
 		show (bool, optional): if True show interactive figure window for each file
 		show_components (bool, optional): if True show figure window for each sub-burst
 		save (bool, optional): if True save a figure displaying the measurements.
 	"""
-	cuts = []
 	if type(xos) == tuple:
 		if len(xos) != 2:
 			raise "Error: xos must be a list or tuple of two lists"
 		cuts = xos[1]
-		if len(cuts) > 1:
-			raise "Error: more than 1 cut is not implemented"
 		xos = xos[0]
 	if type(xos) != list:
 		raise "Error: xos must be a list"
 
 	xos = sorted(xos)
+	cuts = sorted(cuts)
 
 	presubtractbg = True
 	if type(subtractbg) == tuple:
@@ -303,11 +232,12 @@ def measureburst(
 		subtractbg = subtractbg[1]
 
 	results = []
-	bname = filename.split('/')[-1].split('.')[0]
+	bname = filename.split('/')[-1].split('.npz')[0]
 	data = np.load(filename, allow_pickle=True)
 	wfall = np.copy(data['wfall'])
 
 	if targetDM:
+		print(f"Info: Dedispersing from {data['DM']} to {targetDM} pc/cm3")
 		ddm = targetDM - data['DM']
 		wfall = driftrate.dedisperse(
 			wfall,
@@ -325,6 +255,7 @@ def measureburst(
 		wfall = driftrate.subtractbg(wfall, 0, int(wfall.shape[1]*0.1))
 	if type(crop) == tuple or type(crop) == list and len(crop) == 2:
 		wfall = wfall[..., crop[0]:crop[1]]
+		print(f"Info: {bname}: cropped to {wfall.shape = }")
 	wfall = driftrate.subsample(
 		wfall,
 		wfall.shape[0]//downfactors[0],
@@ -337,6 +268,19 @@ def measureburst(
 	res_time_ms = downfactors[1] * 1000*data['duration'] / data['wfall'].shape[1] # ms
 	duration    = wfall.shape[1] * res_time_ms # duration of potentially cropped waterfall
 
+	if targetDM and correctTimes:
+		ddm = targetDM - data['DM']
+
+		a_dm = 4.14937759336e6
+		center_i, errorsumi = driftrate.findCenter(wfall)
+		center_f = center_i*res_freq + freqs_bin0
+		high_ref_freq = max(data['dfs'])
+
+		deltat = - a_dm * (center_f**-2 - high_ref_freq**-2) * ddm
+		xos = [x+deltat for x in xos]
+		cuts = [c+deltat for c in cuts]
+		print(f'Info: shifting xos and cuts by {deltat} ms for {targetDM = } pc/cm3')
+
 	freqs = np.linspace(freqs_bin0, max(data['dfs']), num=wfall.shape[0]) # channel width/2 is already added
 	times_ms = np.linspace(0, duration, num=wfall.shape[1]) # array of timestamps
 	tseries = np.nanmean(wfall, axis=0)
@@ -344,7 +288,7 @@ def measureburst(
 	tpoint = 'tstart' # 'tend', 'xo'
 	pktime = np.nanargmax(tseries)*res_time_ms
 	t_popt, _ = fitgauss(tseries, duration) # whether one or many components, for ref in plot
-	print(f"{bname} {wfall.shape = }")
+	print(f"Info: {bname}: {data['wfall'].shape = }, {wfall.shape = }")
 
 	if len(xos) == 0:
 		xos.append(pktime)
@@ -356,7 +300,12 @@ def measureburst(
 	# then use the time windows to make frequency windows
 	n_bursts = len(xos)
 
-	tmix_popt, tmix_pcov = fitgaussmix(tseries, duration, xos=xos)
+	tmix_popt, tmix_pcov = fitgaussmix(
+		tseries,
+		duration,
+		xos=xos,
+		fix_xos=fix_xos
+	)
 	tmix_perr = np.sqrt(np.diag(tmix_pcov))
 	if len(tmix_perr.shape) == 2: tmix_perr = np.diag(tmix_perr) # handles when pcov is nans
 	tmix_amps   = tmix_popt[:n_bursts]
@@ -387,12 +336,22 @@ def measureburst(
 				subfall = wfall[..., :int(xoi+s4)]
 			else:
 				subfall = wfall[..., int(xoi-s4):int(xoi+s4)] # 4sigma window around burst
-		elif len(cuts) == 1:
-			cutchan = int(np.floor(np.array(cuts)/res_time_ms)[0])
-			if xoi < cutchan:
-				subfall = wfall[..., :cutchan]
-			elif xoi > cutchan:
-				subfall = wfall[..., cutchan:]
+		else:
+			cutchans = np.floor(np.array(cuts)/res_time_ms).astype(int)
+			if xoi < cutchans[0]: # left edge
+				subfall = wfall[..., :cutchans[0]]
+			elif xoi > cutchans[-1]: # right edge
+				subfall = wfall[..., cutchans[-1]:]
+			else: # middle
+				ci = 0
+				while xoi > cutchans[ci]: ci += 1
+				prev_ci = ci-1
+
+				ci = -1
+				while xoi < cutchans[ci]: ci -= 1
+				next_ci = ci+1
+
+				subfall = wfall[..., cutchans[prev_ci]:cutchans[next_ci]]
 
 		if xoi-s1 < 0:
 			subband = wfall[..., :int(xoi+s1)].mean(axis=1)
@@ -408,7 +367,7 @@ def measureburst(
 		subfalls.append(subfall)
 		subbands.append(subband)
 
-	#### Fitting
+	#### Measurements
 	dtdnus, intercepts, subdfs = [], [], []
 	subbandpopts, subbandmodels = [], []
 	colors = cycle([
@@ -458,8 +417,8 @@ def measureburst(
 		subdf = subdf[(subpktime-2*sigma < subdf[tpoint]) & (subdf[tpoint] < subpktime+2*sigma)]
 		if bwidth != 1:
 			subdf = subdf[
-				(pkfreq-3*bwidth < subdf['freqs']) &
-				(subdf['freqs'] < pkfreq+3*bwidth)
+				(pkfreq- bw_filter_factor*bwidth < subdf['freqs']) &
+				(subdf['freqs'] < pkfreq+bw_filter_factor*bwidth)
 			]
 
 		# Measure dt/dnu
@@ -481,7 +440,6 @@ def measureburst(
 			dtdnu, dtdnu_err = 0, 0
 			nu0dtaudnu, nu0dtaudnu_err = 0, 0
 
-
 		# Sub-burst plot
 		if show_components:
 			subfig, subaxs = plotburst(
@@ -500,6 +458,7 @@ def measureburst(
 				(subdf[tpoint]),
 				(subdf['freqs']),
 				c=subcolors,
+				edgecolor='r',
 				marker='o',
 				s=25
 			)
@@ -524,13 +483,19 @@ def measureburst(
 		subbandmodels.append(gauss_model(freqs, *subband_popt))
 
 		# transform times to full waterfall times
-		if len(cuts) == 1:
-			if xosi < cuts[0]:
-				pass # times are already good
-			elif xosi > cuts[0]:
-				subdf[tpoint] = subdf[tpoint] + cuts[0]
-		else:
+		if len(cuts) == 0:
 			subdf[tpoint] = subdf[tpoint] + (xosi-4*sigma)
+		elif len(cuts) > 0:
+			if xosi < cuts[0]: # left edge
+				pass # times are already good
+			elif xosi > cuts[-1]: # right edge
+				subdf[tpoint] = subdf[tpoint] + cuts[-1]
+			else: # middle
+				ci = 0
+				while xosi > cuts[ci]: ci += 1
+				prev_ci = ci-1
+				subdf[tpoint] = subdf[tpoint] + cuts[prev_ci]
+
 		subdf['color'] = next(colors) # assign color to points
 
 		dtdnus.append((dtdnu, dtdnu_err))
@@ -630,15 +595,17 @@ def measureburst(
 	ax_tseries.plot(times_ms-pktime, tseries)
 
 	# plot filter windows (time)
+	sp = 0
 	for s, xoi in zip(tmix_sigmas, xos):
 		w = 2*np.abs(s)
 		ax_tseries.add_patch(Rectangle(
-			(xoi-pktime-w, ax_tseries.get_ylim()[0]),
+			(xoi-pktime-w, ax_tseries.get_ylim()[0] + sp*(np.max(tseries)*0.075)),
 			width=2*w,
 			height=np.max(tseries)*0.075,
 			color='tomato',
 			alpha=0.5
 		))
+		sp += 1
 
 	ax_tseries.plot(
 		times_ms-pktime,
@@ -688,7 +655,7 @@ def measureburst(
 
 	# plot filter windows (frequency)
 	for i, subbandpopt in enumerate(subbandpopts):
-		pkfreq, bw = subbandpopt[1], 3*subbandpopt[2]
+		pkfreq, bw = subbandpopt[1], bw_filter_factor*subbandpopt[2]
 		rectwidth = np.max(bandpass_down)*0.035
 		axs['S'].add_patch(Rectangle(
 			(0.025+axs['S'].get_xlim()[0] + i*(rectwidth+0.025), pkfreq-bw),
@@ -745,23 +712,20 @@ def measureburst(
 			zorder=-1,
 		)
 
-	def printtime(event):
+	def printinfo(event):
 		if event.dblclick:
 			x, y = event.xdata, event.ydata
-			xos.append(x+pktime)
-			# print(f"{x+pktime} ms")
-			print(f"'xos' : {[round(xi,2) for xi in xos]}")
-			[ax_tseries.axvline(x=t-pktime, ls='--') for t in xos]
-			fig.canvas.draw()
-			# print("Adding component...")
-			# plt.close()
-			# return measureburst(
-			# 	filename,
-			# 	xos=xos,
-			# 	outdir='sheikh/',
-			# 	show=True
-			# )
-	cid = fig.canvas.mpl_connect('button_press_event', printtime)
+			if event.button == 1: # Left click: Select component
+				xos.append(x+pktime)
+				# print(f"{x+pktime} ms")
+				print(f"'xos' : {[round(xi,2) for xi in xos]}")
+				[ax_tseries.axvline(x=t-pktime, ls='--') for t in xos]
+				fig.canvas.draw()
+			elif event.button == 3: # Right click: select mask channel
+				ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
+				xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
+				print(f"freq chan: {ychan} time chan: {xchan}")
+	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
 	if show: plt.show()
 	if save:
@@ -770,7 +734,7 @@ def measureburst(
 		else:
 			outname = f"{outdir}/{bname}.png"
 		fig.savefig(outname)
-		print(f"Saved {outname}.")
+		print(f"Info: Saved {outname}.")
 
 	plt.close()
 	return results
@@ -802,6 +766,4 @@ results_columns = [
 #	files = glob.glob(prefix+'*.npz')
 # 	[print(f) for f in sorted(files)]
 # 	exit()
-
-
 
