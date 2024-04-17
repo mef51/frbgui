@@ -6,6 +6,7 @@ import itertools, glob
 import pandas as pd
 import os
 from tqdm import tqdm
+import string
 
 def findCenter(burstwindow):
 	"""
@@ -125,9 +126,9 @@ def subtractbg(wfall, tleft: int=0, tright: int=1):
 	return wfall - wfall[:, tleft:tright].mean(axis=1)[:, None]
 
 def moments(data):
-	"""Returns (height, x, y, width_x, width_y)
+	"""Deprecated function. Returns (height, x, y, width_x, width_y)
 	initial gaussian parameters of a 2D distribution by calculating its
-	moments
+	moments using integer channel coordinates.
 
 	Args:
 		data (np.ndarray): the data to compute moments of
@@ -147,6 +148,28 @@ def moments(data):
 	# print('using default p0:', height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0)
 	return height, data.shape[1]/2, data.shape[0]/2, width_x, width_y, 2.0
 	# return height, x, y, width_x, width_y, 2.0
+
+def gaussian_dt(point, amplitude, t0, dt, nu0, sigma_t, sigma_nu):
+	"""Gaussian model in terms of the temporal drift $d_t$ in ms/MHz
+
+	Equation 2 of Jahns et al. (2023)
+	$sigma_t$ is the burst width measured at $t_0$
+	$sigma_\\nu$ is the overall bandwidth of the summed 1D spectrum
+	"""
+	nu, t = point
+	g = amplitude * np.exp(-(t - t0 - dt*(nu-nu0))**2/(2*sigma_t**2) - (nu-nu0)**2/(2*sigma_nu**2))
+	return g.ravel()
+
+def gaussian_dnu(point, amplitude, t0, dnu, nu0, w_t, w_nu):
+	"""Gaussian model in terms of the frequency drift $d_\\nu$ in MHZ/ms
+
+	Equation 10 of Jahns et al. (2023)
+	$w_t$ is equivalent to the duration measured from the summed 1D time series
+	$w_\\nu$ is the bandwidth at $t_0$
+	"""
+	nu, t = point
+	g = amplitude * np.exp(-(t-t0)**2 / (2*w_t**2) - (nu - nu0 - dnu*(t-t0))**2/(2*w_nu**2))
+	return g.ravel()
 
 def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
 	"""2D rotatable Gaussian Model function. Used as the model function in scipy.optimize.curve_fit
@@ -172,24 +195,13 @@ def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
 	g = amplitude*np.exp( - a*((x-xo)**2) - b*(x-xo)*(y-yo) - c*((y-yo)**2))
 	return g.ravel()
 
-def fitgaussiannlsq(data, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
-	""" Deprecated function. See :py:meth:`fitdatagaussianlsq`"""
-	# use curve-fit (non-linear leastsq)
-	x = range(0, data.shape[1]); y = range(0, data.shape[0])
-	x, y = np.meshgrid(x, y)
-	p0 = moments(data) if p0 == [] else p0
-	sigma = np.zeros(len(data.ravel())) + sigma
-	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
-										  absolute_sigma=True, bounds=bounds)
-	return popt, pcov
-
 def getDataCoords(extents, shape):
 	x = np.linspace(extents[0], extents[1], num=shape[1])
 	y = np.linspace(extents[2], extents[3], num=shape[0])
 	x, y = np.meshgrid(x, y)
 	return x, y
 
-def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf)):
+def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf), model=twoD_Gaussian):
 	"""Fit 2d gaussian to data with the non-linear least squares algorithm implemented by `scipy.optimize.curve_fit <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_.
 
 	Uses the physical units as the data's coordinates.
@@ -200,6 +212,7 @@ def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf))
 		p0 (list, optional): initial guess to used, input as a list of floats corresponding to [amplitude, x0, y0, sigmax, sigmay, theta]. See :py:meth:`twoD_Gaussian`.
 		sigma (float, optional): uncertainty to use during fitting. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
 		bounds (tuple, optional): lower and upper bounds on parameters. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
+		model (function, optional): function to use. ``twoD_Gaussian`` by default.
 
 	Returns:
 		tuple: tuple of (popt, pcov) where popt is the list of gaussian parameters found and pcov is the covariance matrix.
@@ -209,27 +222,32 @@ def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf))
 	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
 	data = data / np.max(data) # normalize
 	x, y = getDataCoords(extents, data.shape)
-	# p0 = moments(data) if p0 == [] else p0 # moments is in channel space, needs to be rewritten for data space
 	p0 = [1,0,0,1,100,0] if p0 == [] else p0
 	sigma = np.zeros(len(data.ravel())) + sigma
-	popt, pcov = scipy.optimize.curve_fit(twoD_Gaussian, (y, x), data.ravel(), p0=p0, sigma=sigma,
-										  absolute_sigma=True, bounds=bounds)
+	popt, pcov = scipy.optimize.curve_fit(
+		model, (y, x), data.ravel(),
+		p0=p0,
+		sigma=sigma,
+		absolute_sigma=True,
+		bounds=bounds
+	)
 	return popt, pcov
 
-def makeDataFitmap(popt, corr, extents):
+def makeDataFitmap(popt, corr, extents, model=twoD_Gaussian):
 	"""Make a fitmap using physical coordinates
 
 	Args:
-		popt (list): List of 2D gaussian model parameters. [amplitude, xo, yo, sigmax, sigmay, theta)]
+		popt (list): List of 2D gaussian model parameters. e.g. [amplitude, xo, yo, sigmax, sigmay, theta)]
 		corr (np.ndarray): the 2d autocorrelation. Can simply pass a 2d array of the same size
 		extents (list): Return value of :py:meth:`getExtents`
+		model (function, optional): the model function corresponding to ``popt``
 
 	Returns:
 		np.ndarray: a 2d array of the 2d gaussian specified by popt
 
 	"""
 	x, y = getDataCoords(extents, corr.shape)
-	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
+	fitmap = model((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
 	return fitmap
 
 def _dedisperse(wfall, dm, freq, dt):
@@ -294,10 +312,9 @@ def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0, a_dm=4.1493775933
 	"""
 	dedispersed = np.copy(intensity)
 
-	shifts = [0 for i in range(0, len(intensity))]
-	high_ref_freq = nu_low + len(dedispersed)*df_mhz
+	high_ref_freq = nu_low + len(dedispersed)*df_mhz # half channel?
 	low_ref_freq  = nu_low
-	#a_dm = 4.1488064239e6 # kulkarni
+	# a_dm = 4.1488064239e6 # kulkarni
 	for i, row in enumerate(dedispersed): # i == 0 corresponds to bottom of the band
 		nu_i = nu_low + i*df_mhz
 		# High frequency anchor
@@ -447,12 +464,27 @@ def _fakeburst(shape, popt, noisefrac=0.2):
 	corr = autocorr2d(wfall)
 	return wfall, corr
 
-def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[], popt_custom=[],
-				 bounds=(-np.inf, np.inf), nclip=None, clip=None, plot=False,
-				 corrsigma=None, wfallsigma=None, maskcorrpeak=True,
-				 verbose=True, lowest_time=0):
+def processBurst(
+	burstwindow,
+	fres_MHz,
+	tres_ms,
+	lowest_freq,
+	burstkey=1,
+	p0=[],
+	popt_custom=[],
+	bounds=(-np.inf, np.inf),
+	nclip=None,
+	clip=None,
+	plot=False,
+	corrsigma=None,
+	wfallsigma=None,
+	maskcorrpeak=True,
+	verbose=True,
+	lowest_time=0
+):
 	"""
-	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method to perform spectro-temporal measurements of the burst
+	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method
+	to perform spectro-temporal measurements of the burst
 
 	Can optionally plot the measurement.
 
@@ -480,9 +512,13 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 	"""
 
 	corr = autocorr2d(burstwindow, maskcorrpeak=maskcorrpeak)
-	_, corrextents = getExtents(burstwindow,
-									  df=fres_MHz, dt=tres_ms, lowest_freq=lowest_freq,
-									  lowest_time=lowest_time)
+	_, corrextents = getExtents(
+		burstwindow,
+		df=fres_MHz,
+		dt=tres_ms,
+		lowest_freq=lowest_freq,
+		lowest_time=lowest_time
+	)
 	# print('wfall info:', f'{np.max(burstwindow) = }, {np.mean(burstwindow) = }, {burstwindow.shape = }, {np.min(burstwindow) = }')
 	# print('corr info:', f'{np.max(corr) = }, {np.mean(corr) = }, {corr.shape = }, {np.min(corr) = }')
 
@@ -503,7 +539,6 @@ def processBurst(burstwindow, fres_MHz, tres_ms, lowest_freq, burstkey=1, p0=[],
 		if popt_custom != []:
 			popt, perr = popt_custom, [-1,-1,-1,-1,-1,-1]
 		else:
-			# popt, pcov = fitgaussiannlsq(corr, p0=p0, sigma=autocorr_sigma, bounds=bounds)
 			popt, pcov = fitdatagaussiannlsq(corr, corrextents, p0=p0, sigma=autocorr_sigma, bounds=bounds)
 			perr = np.sqrt(np.diag(pcov))
 			popt = list(popt); perr = list(perr) # avoid type errors
@@ -719,7 +754,8 @@ def plotStampcard(loadfunc, fileglob='*.npy', figsize=(14, 16), nrows=6, ncols=4
 	plt.tight_layout()
 	plt.show()
 
-subburst_suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']
+subburst_suffixes = list(string.ascii_lowercase)
+subburst_suffixes += [''.join(p) for p in list(zip(list(string.ascii_lowercase), list(string.ascii_lowercase)))]
 def getSubbursts(wfall_cr, df, dt, lowest_freq, regions):
 	"""Split a waterfall into regions.
 
