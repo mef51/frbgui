@@ -28,6 +28,12 @@ def smallestdivisor(n):
 		if n % i == 0:
 			return i
 
+def listnpzs(path):
+	""" List all npz files in path """
+	files = glob.glob(path+'*.npz')
+	[print(f) for f in sorted(files)]
+	exit()
+
 # N component model
 def gaussmix_model(x, *p):
 	n = len(p)//3
@@ -63,14 +69,17 @@ def fitgauss(data, duration):
 	finally:
 		return popt, pcov
 
-def fitgaussmix(data, duration, xos, fix_xos=False):
+def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False):
 	n = len(xos) # Number of components
 	if np.max(data) != 0:
 		data = data / np.max(data) # normalize
 	x = np.linspace(0, duration, num=len(data))
-	sigmas = np.sqrt(abs(sum(data*(x-np.mean(xos))**2)/sum(data)))/4
+	if not sigmas:
+		sigmas = np.sqrt(abs(sum(data*(x-np.mean(xos))**2)/sum(data)))/4
+		guess = [*[np.max(data)]*n, *xos, *[sigmas]*n]
+	else:
+		guess = [*[np.max(data)]*n, *xos, *sigmas]
 
-	guess = [*[np.max(data)]*n, *xos, *[sigmas]*n]
 	bounds = (-np.inf, np.inf)
 	if fix_xos:
 		bounds = (  # fix xos
@@ -158,10 +167,25 @@ def plotburst(data, band, retfig=False, extent=None):
 		plt.show()
 		plt.close()
 
+results_columns = [
+	'name',
+	'DM',
+	'center_f (MHz)',
+	'center_f_err',
+	'duration (ms)',
+	'duration_err',
+	'bandwidth (MHz)',
+	'bandwidth_err',
+	'dtdnu (ms/MHz)',
+	'dtdnu_err',
+	'tb (ms)', # nu0dtaudnu
+	'tb_err'
+]
 def measureburst(
 	filename,
 	xos=[],
 	cuts=[],
+	sigmas=None,
 	fix_xos=False,
 	targetDM=None,
 	correctTimes=False,
@@ -173,7 +197,8 @@ def measureburst(
 	outdir='',
 	show=True,
 	show_components=False,
-	save=True
+	save=True,
+	loadonly=False,
 ):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
@@ -187,7 +212,7 @@ def measureburst(
 	of components to fit for is equal to ``len(xos)``
 
 	Args:
-		filename (str): filename to npz of a *dedispersed* burst waterfall
+		filename (str): filename to npz of a *dedispersed* burst waterfall. Conforms to frbgui's burst format.
 		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers.
 			Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall.
 			Using the ``cuts`` option instead is equivalent to using the 2 tuple option.
@@ -208,12 +233,40 @@ def measureburst(
 		bw_filter_factor (int, optional): By default 3 $sigma$ of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first.
-		outdir (str, optional): string of output folder for figures
+		outdir (str, optional): string of output folder for figures. Defaults to ''.
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
 		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling
 		show (bool, optional): if True show interactive figure window for each file
 		show_components (bool, optional): if True show figure window for each sub-burst
 		save (bool, optional): if True save a figure displaying the measurements.
+		loadonly (bool, optional): if True will perform loading steps such as masking, dedispersing,
+			and downsampling, then return a tuple of wfall, freqs, times_ms, t_popt, DM, etc.
+
+	Returns:
+		results (list): list of lists where each list is the result of the measurement.
+			This array can be used to make a pandas dataframe in the following way:
+			```
+			resultsdf = pd.DataFrame(
+				data=results,
+				columns=arrivaltimes.results_columns
+			).set_index('name')
+			```
+
+			where the columns of the dataframe are
+			```
+			'name',
+			'DM',
+			'center_f (MHz)',
+			'center_f_err',
+			'duration (ms)',
+			'duration_err',
+			'bandwidth (MHz)',
+			'bandwidth_err',
+			'dtdnu (ms/MHz)',
+			'dtdnu_err',
+			'tb (ms)', # nu0dtaudnu
+			'tb_err'
+			```
 	"""
 	if type(xos) == tuple:
 		if len(xos) != 2:
@@ -290,6 +343,17 @@ def measureburst(
 	t_popt, _ = fitgauss(tseries, duration) # whether one or many components, for ref in plot
 	print(f"Info: {bname}: {data['wfall'].shape = }, {wfall.shape = }")
 
+	if loadonly:
+		return (
+			wfall,
+			freqs,
+			times_ms,
+			res_freq,
+			res_time_ms,
+			targetDM,
+			t_popt
+		)
+
 	if len(xos) == 0:
 		xos.append(pktime)
 
@@ -304,6 +368,7 @@ def measureburst(
 		tseries,
 		duration,
 		xos=xos,
+		sigmas=sigmas,
 		fix_xos=fix_xos
 	)
 	tmix_perr = np.sqrt(np.diag(tmix_pcov))
@@ -713,23 +778,29 @@ def measureburst(
 		)
 
 	def printinfo(event):
+		x, y = event.xdata, event.ydata
 		if event.dblclick:
-			x, y = event.xdata, event.ydata
 			if event.button == 1: # Left click: Select component
 				xos.append(x+pktime)
 				# print(f"{x+pktime} ms")
 				print(f"'xos' : {[round(xi,2) for xi in xos]}")
 				[ax_tseries.axvline(x=t-pktime, ls='--') for t in xos]
 				fig.canvas.draw()
-			elif event.button == 3: # Right click: select mask channel
-				ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
-				xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
-				print(f"freq chan: {ychan} time chan: {xchan}")
+			elif event.button == 3: # dbl Right click
+				cuts.append(x+pktime)
+				# print(f"{x+pktime} ms")
+				print(f"'cuts' : {[round(xi,2) for xi in cuts]}")
+				[ax_tseries.axvline(x=t-pktime, ls='--', c='k') for t in cuts]
+				fig.canvas.draw()
+		if event.button == 3: # Right click: select mask channel
+			ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
+			xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
+			print(f"freq chan: {ychan} time chan: {xchan}")
 	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
 	if show: plt.show()
 	if save:
-		if outdir[-1] == '/' or outdir == '':
+		if outdir == '' or outdir[-1] == '/':
 			outname = f"{outdir}{bname}.png"
 		else:
 			outname = f"{outdir}/{bname}.png"
@@ -739,26 +810,266 @@ def measureburst(
 	plt.close()
 	return results
 
-def listnpzs(path):
-	""" List all npz files in path """
-	files = glob.glob(path+'*.npz')
-	[print(f) for f in sorted(files)]
-	exit()
+def measure_allmethods(filename, show=True, **kwargs):
+	"""
+	Collect spectro-temporal measurements of a burst using multiple techniques.
+	Utility for comparing the result of spectro-temporal measurements of a burst obtained from the following
+	techniques:
+	1. arrival times method
+	2. ACF method
+	3. direct 2d gaussian with three gaussian forms
 
-results_columns = [
-	'name',
-	'DM',
-	'center_f (MHz)',
-	'center_f_err',
-	'duration (ms)',
-	'duration_err',
-	'bandwidth (MHz)',
-	'bandwidth_err',
-	'dtdnu (ms/MHz)',
-	'dtdnu_err',
-	'tb (ms)', # nu0dtaudnu
-	'tb_err'
+	Args:
+		filename (str): path to .npz of burst in frbgui burst format
+		kwargs: keywords to pass to `measureburst` for loading/processing the waterfall.
+			`measureburst` with `loadonly=True` is used to load the burst.
+	"""
+	model_results = []
+	precalc_results = []
+
+	(
+		wfall,
+		freqs,
+		times_ms,
+		res_freq,
+		res_time_ms,
+		targetDM,
+		t_popt
+	) = measureburst(
+		filename,
+		loadonly=True,
+		**kwargs
+	)
+
+	freqs_bin0 = min(freqs)
+	tseries = np.nanmean(wfall, axis=0)
+	pktime = np.nanargmax(tseries)*res_time_ms
+	extent, corrext = driftrate.getExtents(wfall, res_freq, res_time_ms, freqs_bin0)
+
+	fig, axs = plt.subplots(1,2, figsize=(10,5))
+	axs[0].imshow(
+		wfall,
+		aspect='auto',
+		origin='lower',
+		extent=extent,
+		interpolation='none'
+	)
+	axs[0].set_xlabel("Time (ms)")
+	axs[0].set_ylabel("Frequency (MHz)")
+	## Arrival times measurement
+	arr_result = measureburst(
+		filename,
+		save=False,
+		show=False,
+		**kwargs
+	)
+
+	arrdf = pd.DataFrame(
+		data=arr_result,
+		columns=results_columns
+	).set_index('name')
+	# print(arrdf[['dtdnu (ms/MHz)']], 'ms/MHz', arrdf[['dtdnu_err']], 'ms/MHz')
+
+	print("Arrival Times method:")
+	print(f"\t{arrdf.iloc[0]['dtdnu (ms/MHz)']:.4e} +/- {arrdf.iloc[0]['dtdnu_err']:.4e} ms/MHz")
+
+	## ACF measurement ( -3470 mhz/ms in frbgui)
+	p0s = [
+		[1, pktime, freqs[len(freqs)//2], 0.01, 100, 0],  # amp, xo, yo, sigma_x, sigma_y, theta
+		[1, pktime, 0., freqs[len(freqs)//2], 0.01, 100], # amp, t0, dt, nu0, sigma_t, sigma_nu
+		[1, pktime, 0., freqs[len(freqs)//2], 0.01, 100]  # amp, t0, dnu, nu0, w_t, w_nu
+	]
+
+	(
+		slope,
+		slope_error,
+		cpopt,
+		cperr,
+		_, # theta,
+		_, # red_chisq,
+		_, # center_f,
+		_, # center_f_err,
+		fitmap,
+	) = driftrate.processBurst(
+		wfall,
+		res_freq,
+		res_time_ms,
+		freqs_bin0,
+		p0=[],
+		verbose=False,
+		plot=False
+	)
+	print(f"ACF method: \n\t{slope = } +/- {slope_error} MHz/ms")
+	print(f"\t{1/slope:.4e} +/- {slope_error/slope**2:.4e} ms/MHz")
+
+	precalc_results += [1/slope, slope_error/slope**2]
+	model_results += list(cpopt)+list(cperr)
+
+	corr = driftrate.autocorr2d(wfall)
+	corrplot = axs[1].imshow(
+		corr,
+		interpolation='none',
+		aspect='auto',
+		cmap='gray',
+		extent=corrext,
+		origin='lower'
+	)
+	corrplot.set_clim(0, np.max(corr))
+	if cpopt[0] > 0:
+		axs[1].contour(
+			fitmap,
+			[cpopt[0]/4, cpopt[0]*0.9],
+			colors='b',
+			alpha=0.33,
+			extent=corrext,
+		)
+
+	## Gaussian models measurements
+	models = [driftrate.twoD_Gaussian, driftrate.gaussian_dt, driftrate.gaussian_dnu] # preserve order
+	sigma = np.std( wfall[:, 0:50] )
+	for model, p0 in zip(models, p0s):
+		popt, pcov = driftrate.fitdatagaussiannlsq(
+			wfall,
+			extent,
+			p0=p0,
+			sigma=sigma,
+			model=model
+		)
+		perr = np.sqrt(np.diag(pcov))
+		# print(popt)
+		print(f"{model.__name__}:")
+
+		if model == driftrate.twoD_Gaussian: # amp, xo, yo, sigma_x, sigma_y, theta
+			units = ['']*len(p0)
+			lbls = ['$A$', '$x_0$', '$y_0$', '$\\sigma_x$', '$\\sigma_y$', '$\\theta$']
+
+			theta = popt[5] if abs(popt[3]) > abs(popt[4]) else popt[5] - np.pi/2 # defined via eqs. A2 and A3
+			slope = np.tan(theta) # MHz/ms
+			theta_err = perr[-1]
+			slope_error = (theta_err * (1/np.cos(theta))**2)
+
+			print(f"\t{slope:.4e} MHz/ms +/- {slope_error}")
+			print(f"\t{1/slope:.4e} +/- {slope_error/slope**2:.4e} ms/MHz")
+			precalc_results += [1/slope, slope_error/slope**2]
+		elif model == driftrate.gaussian_dt: # amp, t0, dt, nu0, sigma_t, sigma_nu
+			units = ['', 'ms', 'ms/MHz', 'MHz', 'ms', 'MHz']
+			lbls = ['$A_{dt}$', '$t_0$', '$d_t$', '$\\nu_0$', '$\\sigma_t$', '$\\sigma_\\nu$']
+
+			print(f"\t{popt[2]:.4e} +/- {perr[2]:.4e} ms/MHz")
+			precalc_results += [1/slope, slope_error/slope**2]
+		elif model == driftrate.gaussian_dnu: # amp, t0, dnu, nu0, w_t, w_nu
+			units = ['', 'ms', 'MHz/ms', 'MHz', 'ms', 'MHz']
+			lbls = ['$A_{dnu}$', '$t_0$', '$d_\\nu$', '$\\nu_0$', '$w_t$', '$w_\\nu$']
+
+			gnu_dt = popt[2] / (popt[2]**2 + popt[5]**2/popt[4]**2)
+
+			print(f"\t {gnu_dt = :.4e} ms/MHz")
+			precalc_results += [gnu_dt, -1] # uncertainty needs to be derived from eq. A4 in Jahns+2023
+
+		# Output
+		model_results += list(popt)+list(perr)
+		resultstr = ', '.join([f"{lbl} = {f:.4e} {unit}" for lbl, f, unit in zip(lbls, popt, units)])
+		print('\t', resultstr)
+		errstr = ', '.join([f"d{lbl} = {f:.4e} {unit}" for lbl, f, unit in zip(lbls, perr, units)])
+		print('\t', errstr)
+
+		poptmap = driftrate.makeDataFitmap(
+			popt,
+			wfall,
+			extent,
+			model=model
+		)
+
+		if popt[0] > 0:
+			axs[0].contour(
+				poptmap,
+				[popt[0]/4, popt[0]*0.9],
+				colors='w',
+				alpha=0.33,
+				extent=extent,
+			)
+		else: # Bad fit, plot in red
+			axs[0].contour(
+				poptmap,
+				[-popt[0]/4, -popt[0]*0.9],
+				colors='r',
+				alpha=0.33,
+				extent=extent,
+			)
+		bname = filename.split('/')[-1].split('.')[0]
+		axs[0].set_title(bname)
+
+	results_allmethods = list(arrdf.reset_index().iloc[0]) + precalc_results + model_results
+
+	if show: plt.show()
+	plt.savefig(f"measurements/collected/{bname}")
+
+	return results_allmethods
+
+allmethods_columns = [
+	## precalc columns
+	'dtdnu_ACF (ms/MHz)',
+	'dtdnu_ACF_err',
+	'dtdnu_g (ms/MHz)',
+	'dtdnu_g_err',
+	'dt_gdt (ms/MHz)',
+	'dt_gdt_err',
+	'dt_gdnu (ms/MHz)',
+	'dt_gdnu_err',
+	## Raw parameter columns with uncertainties
+	'A_ACF',
+	'x0_ACF',
+	'y0_ACF',
+	'sigma_x_ACF',
+	'sigma_y_ACF',
+	'theta_ACF',
+	'A_ACF_err',
+	'x0_ACF_err',
+	'y0_ACF_err',
+	'sigma_x_ACF_err',
+	'sigma_y_ACF_err',
+	'theta_ACF_err',
+	##
+	'A_g',
+	'x0',
+	'y0',
+	'sigma_x',
+	'sigma_y',
+	'theta',
+	'A_g_err',
+	'x0_err',
+	'y0_err',
+	'sigma_x_err',
+	'sigma_y_err',
+	'theta_err',
+	##
+	'A_dt',
+	't0_gdt (ms)',
+	'd_t (ms/MHz)',
+	'nu0_gdt (MHz)',
+	'sigma_t (ms)',
+	'sigma_nu (MHz)',
+	'A_dt_err',
+	't0_gdt_err',
+	'd_t_err',
+	'nu0_gdt_err',
+	'sigma_t_err',
+	'sigma_nu_err',
+	##
+	'A_dnu',
+	't0_gdnu (ms)',
+	'd_nu (MHz/ms)',
+	'nu0_gdnu (MHz)',
+	'w_t (ms)',
+	'w_nu (MHz)',
+	'A_dnu_err',
+	't0_gdnu_err',
+	'd_nu_err',
+	'nu0_gdnu_err',
+	'w_t_err',
+	'w_nu_err',
 ]
+
 
 # if __name__ == '__main__':
 # 	files = glob.glob('/Users/mchamma/dev/SurveyFRB20121102A/data/snelders2023/figure_1/*.npz')
