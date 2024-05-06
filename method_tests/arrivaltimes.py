@@ -167,6 +167,10 @@ def plotburst(data, band, retfig=False, extent=None):
 		plt.show()
 		plt.close()
 
+logdebug = False
+def printd(*args):
+	if logdebug: print(*args)
+
 results_columns = [
 	'name',
 	'DM',
@@ -453,7 +457,11 @@ def measureburst(
 		if len(cuts) == 0:
 			subpktime = 4*sigma # since we made a 4 sigma window
 		else:
-			subpktime = np.nanargmax(subfall.mean(axis=0))*res_time_ms
+			ci, edge = 0, 0
+			while ci < len(cuts) and xosi >= cuts[ci]:
+				edge = cuts[ci]
+				ci += 1
+			subpktime = xosi - edge
 
 		# Fit 1d gauss to burst spectrum
 		fo = sum(freqs*subband)/sum(subband) # this is an estimate of center_f
@@ -477,9 +485,12 @@ def measureburst(
 		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f
 
 		## Apply time and spectral filters to points
+		printd(f"Debug: pre-filters {len(subdf) = }")
 		subdf = subdf[(subdf.amp > 0)]
 		subdf = subdf[subdf.tstart_err/subdf.tstart < 10]
 		subdf = subdf[(subpktime-2*sigma < subdf[tpoint]) & (subdf[tpoint] < subpktime+2*sigma)]
+		printd(f"Debug: post-filters {len(subdf) = }")
+
 		if bwidth != 1:
 			subdf = subdf[
 				(pkfreq- bw_filter_factor*bwidth < subdf['freqs']) &
@@ -739,13 +750,13 @@ def measureburst(
 	plt.setp(ax_tseries.get_xticklabels(), visible=False)
 
 	### Slope measurement plot. Plot last component
-	lastdf = subdfs[-1]
+	plotdf = subdfs[-1]
 	ax_slope = axs['E']
-	ax_slope.scatter(lastdf['freqs'], lastdf[tpoint]-xos[-1], c='k', s=20)
+	ax_slope.scatter(plotdf['freqs'], plotdf[tpoint]-xos[-1], c='k', s=20)
 	ax_slope.errorbar(
-		lastdf['freqs'],
-		lastdf[tpoint]-xos[-1],
-		yerr=lastdf[f'{tpoint}_err'],
+		plotdf['freqs'],
+		plotdf[tpoint]-xos[-1],
+		yerr=plotdf[f'{tpoint}_err'],
 		xerr=None,
 		fmt='none',
 		zorder=-1,
@@ -790,7 +801,7 @@ def measureburst(
 				cuts.append(x+pktime)
 				# print(f"{x+pktime} ms")
 				print(f"'cuts' : {[round(xi,2) for xi in cuts]}")
-				[ax_tseries.axvline(x=t-pktime, ls='--', c='k') for t in cuts]
+				[ax_tseries.axvline(x=t-pktime, ls='-.', c='k') for t in cuts]
 				fig.canvas.draw()
 		if event.button == 3: # Right click: select mask channel
 			ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
