@@ -195,13 +195,23 @@ def twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta):
 	g = amplitude*np.exp( - a*((x-xo)**2) - b*(x-xo)*(y-yo) - c*((y-yo)**2))
 	return g.ravel()
 
+def twoD_Gaussian_floor(point, amplitude, xo, yo, sigma_x, sigma_y, theta, floor):
+	return twoD_Gaussian(point, amplitude, xo, yo, sigma_x, sigma_y, theta) + floor
+
 def getDataCoords(extents, shape):
 	x = np.linspace(extents[0], extents[1], num=shape[1])
 	y = np.linspace(extents[2], extents[3], num=shape[0])
 	x, y = np.meshgrid(x, y)
 	return x, y
 
-def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf), model=twoD_Gaussian):
+def fitdatagaussiannlsq(
+	data,
+	extents,
+	p0=[],
+	sigma=0,
+	bounds=(-np.inf, np.inf),
+	model=twoD_Gaussian
+):
 	"""Fit 2d gaussian to data with the non-linear least squares algorithm implemented by `scipy.optimize.curve_fit <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_.
 
 	Uses the physical units as the data's coordinates.
@@ -224,8 +234,11 @@ def fitdatagaussiannlsq(data, extents, p0=[], sigma=0, bounds=(-np.inf, np.inf),
 	x, y = getDataCoords(extents, data.shape)
 	p0 = [1,0,0,1,100,0] if p0 == [] else p0
 	sigma = np.zeros(len(data.ravel())) + sigma
+	print(">> fitdatagaussianlsq", model.__name__)
 	popt, pcov = scipy.optimize.curve_fit(
-		model, (y, x), data.ravel(),
+		model,
+		(y, x),
+		data.ravel(),
 		p0=p0,
 		sigma=sigma,
 		absolute_sigma=True,
@@ -286,7 +299,8 @@ def _dedisperse(wfall, dm, freq, dt):
 
 	return dedisp
 
-def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0, a_dm=4.14937759336e6):
+a_dm = 4.14937759336e6 # MHz^2 ms cm^3/pc
+def dedisperse(intensity, DM, nu_low, df_mhz, dt_ms, cshift=0, a_dm=a_dm):
 	"""Incoherently dedisperse a dynamic spectrum to the specified DM.
 
 	Computes the time delay at each frequency and correspondingly rolls the data
@@ -453,6 +467,9 @@ def autocorr2d(data, maskcorrpeak=True):
 		ind = np.unravel_index(np.argmax(corr), corr.shape)
 		if corr[ind] == np.max(corr): # double check
 			corr[ind] = 0
+			if np.max(corr) > 5*np.median(corr): # Repeat once
+				ind = np.unravel_index(np.argmax(corr), corr.shape)
+				corr[ind] = 0
 
 	return corr
 
@@ -480,7 +497,8 @@ def processBurst(
 	wfallsigma=None,
 	maskcorrpeak=True,
 	verbose=True,
-	lowest_time=0
+	lowest_time=0,
+	usefloor=False
 ):
 	"""
 	Given a waterfall of a burst, will use the 2d autocorrelation+gaussian fitting method
@@ -505,6 +523,7 @@ def processBurst(
 		verbose (bool, optional): Set to False to limit console output
 		maskcorrpeak (bool, optional): Set to False to keep the zero lag correlation peak
 		lowest_time (float, optional): starting time (ms) of waterfall. Default 0.
+		usefloor (bool, optional): Whether or not to add a constant floor as a parameter in the gaussian ACF fit.
 
 	Returns:
 		tuple: (slope, slope_error, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap)
@@ -538,10 +557,28 @@ def processBurst(
 	try:
 		if popt_custom != []:
 			popt, perr = popt_custom, [-1,-1,-1,-1,-1,-1]
-		else:
-			popt, pcov = fitdatagaussiannlsq(corr, corrextents, p0=p0, sigma=autocorr_sigma, bounds=bounds)
+		elif not usefloor:
+			popt, pcov = fitdatagaussiannlsq(
+				corr,
+				corrextents,
+				p0=p0,
+				sigma=autocorr_sigma,
+				bounds=bounds
+			)
 			perr = np.sqrt(np.diag(pcov))
 			popt = list(popt); perr = list(perr) # avoid type errors
+		elif usefloor:
+			popt, pcov = fitdatagaussiannlsq(
+				corr,
+				corrextents,
+				p0=[1,0,0,1,100,0,0] if p0 == [] else p0+[0],
+				sigma=autocorr_sigma,
+				bounds=bounds,
+				model=twoD_Gaussian_floor
+			)
+			perr = np.sqrt(np.diag(pcov))
+			popt = list(popt); perr = list(perr) # avoid type errors
+
 
 		if np.isnan(popt).any():
 			raise ValueError
@@ -549,11 +586,18 @@ def processBurst(
 	except (RuntimeError, ValueError):
 		if verbose: print('no fit found')
 		popt, perr = [-1,-1,-1,-1,-1,-1], [-1,-1,-1,-1,-1,-1]
+		if usefloor:
+			popt.append(-1)
+			perr.append(-1)
 		if popt_custom != []:
 			popt = popt_custom
 
 	x, y = getDataCoords(corrextents, corr.shape)
-	fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
+	if not usefloor:
+		fitmap = twoD_Gaussian((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
+	elif usefloor:
+		print(popt)
+		fitmap = twoD_Gaussian_floor((y, x), *popt).reshape(corr.shape[0], corr.shape[1])
 
 	# calculate reduced chisquared
 	residuals = corr - fitmap
@@ -1014,28 +1058,32 @@ def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6
 
 def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, time_res,
 				lowest_freq, ploti=None):
-	fontsize = 22
-	cmap = plt.get_cmap('gray')
-	cmap.set_bad(color = 'w', alpha = 1.)
-
-	extents = (0,
-			   time_res*burstwindow.shape[1],
-			   lowest_freq - freq_res/2.,
-			   lowest_freq + freq_res*burstwindow.shape[0])
+	fontsize = 'large'
+	extents = (
+		0,
+	   time_res*burstwindow.shape[1],
+	   lowest_freq - freq_res/2.,
+	   lowest_freq + freq_res*burstwindow.shape[0]
+   )
 
 	corrextents = (-extents[1], extents[1], -(extents[3]-extents[2])*2, (extents[3]-extents[2])*2)
 
 	# extents, corrextents = None, None
-
 	nrows = 7
 	aspect = 'auto'
 	if ploti == None:
-		plt.figure(figsize=(15, 12))
+		plt.figure()
 		plt.subplot(121)
 	else:
 		plt.subplot(nrows, 2, next(ploti))
 	plt.title("Burst #{}".format(burstkey), fontsize=fontsize)
-	plt.imshow(burstwindow, interpolation='none', aspect=aspect, cmap=cmap, extent=extents, origin='lower')
+	plt.imshow(
+		burstwindow,
+		interpolation='none',
+		aspect=aspect,
+		extent=extents,
+		origin='lower'
+	)
 	# plt.axhline(y=center_f, c='k', ls='--', lw=3)
 	plt.xlabel("Time (ms)")
 	plt.ylabel("Frequency (MHz)")
@@ -1045,12 +1093,26 @@ def _plotresult(burstwindow, corr, fitmap, burstkey, center_f, popt, freq_res, t
 	else:
 		plt.subplot(nrows, 2, next(ploti))
 	plt.title("Correlation #{}".format(burstkey), fontsize=fontsize)
-	plt.imshow(corr, interpolation='none', aspect=aspect, cmap='gray', extent=corrextents, origin='lower')
+	plt.imshow(
+		corr,
+		interpolation='none',
+		aspect=aspect,
+		cmap='gray',
+		extent=corrextents,
+		origin='lower'
+	)
 	plt.xlabel("Time Shift (ms)")
 	plt.ylabel("Frequency Shift (MHz)")
 	plt.clim(0, np.max(corr)/1)
 
 	if popt[0] > 0:
-		plt.contour(fitmap, [popt[0]/4, popt[0]*0.9], colors='b', alpha=0.75, extent=corrextents,
-					origin='lower')
+		plt.contour(
+			fitmap,
+			[popt[0]/4, popt[0]*0.9],
+			colors='b',
+			alpha=0.75,
+			extent=corrextents,
+			origin='lower'
+		)
+	plt.tight_layout()
 
