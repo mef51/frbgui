@@ -105,6 +105,7 @@ def fitrows(wfall, dt, freqs, plot=False):
 	fitdata = np.zeros((wfall.shape[0], 10))
 	for i, row in enumerate(wfall):
 		popt, pcov = fitgauss(row, wfall.shape[1]*dt)
+		# print(f'row {i}: {popt = } {np.mean(row) = } {freqs[i] = }')
 		perr = np.sqrt(np.diag(pcov))
 		if len(perr.shape) == 2: perr = np.diag(perr) # handles when pcov is nans
 		sigma = abs(popt[2])
@@ -226,13 +227,15 @@ def measureburst(
 		cuts (List[float], optional): List of times in ms to cut the waterfall. Useful for blended bursts.
 			User must make sure their cuts make sense (i.e. in between burst centers).
 			Typically, if one cut is needed, then all bursts should be cut as well even if well separated.
+		sigmas (List[float], optional): initial guesses for the width sigma when finding the 1-dimensional gaussian model
+			to the time series. Must be the same length as ``xos``
 		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
 		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at.
 			Default is to perform the measurement at the DM of the npz file.
 		correctTimes (bool, optional): Shift xos and cuts to account for dispersive shift
-			when applying a targetDM other than the burst DM
+			when applying a targetDM other than the burst DM. Note that this shift will occur even when ``fix_xos`` is True.
 		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
 		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
 			By default will do a background subtraction using 10% of channels on the whole waterfall.
@@ -305,12 +308,6 @@ def measureburst(
 	bname = filename.split('/')[-1].split('.npz')[0]
 	data = np.load(filename, allow_pickle=True)
 	wfall = np.copy(data['wfall'])
-
-	if not submasks:
-		submasks = ([],)*len(xos)
-	else:
-		if len(submasks) != len(xos):
-			raise ValueError("Please ensure the length of xos and submasks match")
 
 	if targetDM:
 		print(f"Info: Dedispersing from {data['DM']} to {targetDM} pc/cm3")
@@ -402,6 +399,12 @@ def measureburst(
 	tmix_sigma_errs = tmix_perr[n_bursts*2:n_bursts*3]
 
 	xos = tmix_xos if type(tmix_xos) == list else tmix_xos.tolist() # align to fit component centers
+
+	if not submasks:
+		submasks = ([],)*len(xos)
+	else:
+		if len(submasks) != len(xos):
+			raise ValueError("Please ensure the length of xos and submasks match")
 
 	subfalls = []
 	subbands = []
@@ -507,7 +510,7 @@ def measureburst(
 			subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
 
 		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
-		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f
+		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f and center_f_err
 
 		## Apply time and spectral filters to points
 		printd(f"Debug: pre-filters {len(subdf) = }")
@@ -832,6 +835,7 @@ def measureburst(
 			ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
 			xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
 			print(f"freq chan: {ychan} time chan: {xchan}")
+			# print(f"freq chan: {ychan} time chan: {xchan} {np.mean(wfall[ychan//downfactors[0]]) = }")
 	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
 	if show: plt.show()
@@ -982,6 +986,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 	model_results += list(cpopt)+list(cperr)
 
 	corr = driftrate.autocorr2d(wfall)
+
 	corrplot = axs[1].imshow(
 		corr,
 		interpolation='none',
@@ -996,12 +1001,53 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 			fitmap,
 			[cpopt[0]/4, cpopt[0]*0.9],
 			colors='b',
-			alpha=0.33,
+			alpha=0.75,
 			extent=corrext,
 		)
 		c.collections[0].set_label(
 			f"ACF: $dt/d\\nu =$ {scilabel(1/slope, slope_error/slope**2)} ms/MHz"
 		)
+	axs[1].set_xlabel("Time lag (ms)")
+	axs[1].set_ylabel("Frequency lag (MHz)")
+
+	## ACF with constant floor
+	print(f"{cpopt = }")
+	print("ACF with floor:")
+	(
+		slope2,
+		slope_error2,
+		cpopt2,
+		cperr2,
+		_, # theta,
+		_, # red_chisq,
+		_, # center_f,
+		_, # center_f_err,
+		fitmap2,
+	) = driftrate.processBurst(
+		wfall,
+		res_freq,
+		res_time_ms,
+		freqs_bin0,
+		p0=[],
+		verbose=False,
+		plot=False,
+		usefloor=True
+	)
+	print(f"ACF with floor method: \n\t{slope2 = } +/- {slope_error2} MHz/ms, floor = {cpopt2[6]}")
+	print(f"\t{1/slope2:.4e} +/- {slope_error2/slope2**2:.4e} ms/MHz")
+
+	if cpopt2[0] > 0:
+		c = axs[1].contour(
+			fitmap2,
+			[cpopt2[0]/4, cpopt2[0]*0.9],
+			colors='g',
+			alpha=0.75,
+			extent=corrext,
+		)
+		c.collections[0].set_label(
+			f"ACF floored: $dt/d\\nu =$ {scilabel(1/slope2, slope_error2/slope2**2)} ms/MHz \nfloor = {cpopt2[6]:.2e}"
+		)
+	axs[0].legend()
 
 	## Gaussian models measurements
 	models = [driftrate.twoD_Gaussian, driftrate.gaussian_dt, driftrate.gaussian_dnu] # preserve order
@@ -1036,7 +1082,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 			lbls = ['$A_{dt}$', '$t_0$', '$d_t$', '$\\nu_0$', '$\\sigma_t$', '$\\sigma_\\nu$']
 
 			print(f"\t{popt[2]:.4e} +/- {perr[2]:.4e} ms/MHz")
-			precalc_results += [1/slope, slope_error/slope**2]
+			precalc_results += [popt[2], perr[2]]
 			legend_lbl = f"$d_t =$ {scilabel(popt[2], perr[2])} ms/MHz"
 		elif model == driftrate.gaussian_dnu: # amp, t0, dnu, nu0, w_t, w_nu
 			units = ['', 'ms', 'MHz/ms', 'MHz', 'ms', 'MHz']
@@ -1085,11 +1131,12 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		bname = filename.split('/')[-1].split('.')[0]
 		axs[0].set_title(bname)
 
+	# axs[0].legend(handlelength=0)
 	try:
 		axs[0].legend(handlelength=0)
 	except IndexError as e:
 		print("error: weird legend bug")
-	axs[1].legend(handlelength=0)
+	axs[1].legend(ncols=1, handlelength=0)
 
 	results_allmethods = list(arrdf.reset_index().iloc[0]) + precalc_results + model_results
 
