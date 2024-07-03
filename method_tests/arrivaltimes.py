@@ -69,7 +69,7 @@ def fitgauss(data, duration):
 	finally:
 		return popt, pcov
 
-def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False):
+def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False, tol=0.01):
 	n = len(xos) # Number of components
 	if np.max(data) != 0:
 		data = data / np.max(data) # normalize
@@ -83,8 +83,8 @@ def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False):
 	bounds = (-np.inf, np.inf)
 	if fix_xos:
 		bounds = (  # fix xos
-			[*[-np.inf]*n, *[xoi - 0.01 for xoi in xos], *[-np.inf]*n],
-			[*[np.inf]*n, *[xoi + 0.01 for xoi in xos], *[np.inf]*n]
+			[*[-np.inf]*n, *[xoi - tol for xoi in xos], *[-np.inf]*n],
+			[*[np.inf]*n, *[xoi + tol for xoi in xos], *[np.inf]*n]
 		)
 
 	try:
@@ -192,11 +192,12 @@ def measureburst(
 	cuts=[],
 	sigmas=None,
 	fix_xos=False,
+	tolms=0.01,
 	targetDM=None,
 	correctTimes=False,
 	downfactors=(1,1),
 	subtractbg=False,
-	bw_filter_factor=3,
+	bw_filter_factor=3, # burst based filter factors are likely to help a lot with complex and blended components, and avoids having to do submasks
 	t_filter_factor=2,
 	crop=None,
 	masks=[],
@@ -232,6 +233,7 @@ def measureburst(
 		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
+		tolms (float, optional): Tolerance in milliseconds to use when ``fix_xos`` is True. Default is 0.01 ms.
 		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at.
 			Default is to perform the measurement at the DM of the npz file.
 		correctTimes (bool, optional): Shift xos and cuts to account for dispersive shift
@@ -240,7 +242,7 @@ def measureburst(
 		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
 			By default will do a background subtraction using 10% of channels on the whole waterfall.
 			Pass `(False, False)` to skip both rounds of background subtraction.
-		bw_filter_factor (int, optional): By default 3 $sigma$ of the burst bandwidth is applied as a spectral filter.
+		bw_filter_factor (int, optional): By default 3 $$sigma$$ of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first.
 		t_filter_factor (int, optional): By default 2 $sigma$ of the burst duration is applied as a temporal filter.
@@ -389,7 +391,8 @@ def measureburst(
 		duration,
 		xos=xos,
 		sigmas=sigmas,
-		fix_xos=fix_xos
+		fix_xos=fix_xos,
+		tol=tolms
 	)
 	tmix_perr = np.sqrt(np.diag(tmix_pcov))
 	if len(tmix_perr.shape) == 2: tmix_perr = np.diag(tmix_perr) # handles when pcov is nans
@@ -397,6 +400,7 @@ def measureburst(
 	tmix_xos    = tmix_popt[n_bursts:n_bursts*2]
 	tmix_sigmas = tmix_popt[n_bursts*2:n_bursts*3]
 	tmix_sigma_errs = tmix_perr[n_bursts*2:n_bursts*3]
+	printd(f"'sigmas': {[f for f in tmix_sigmas]}")
 
 	xos = tmix_xos if type(tmix_xos) == list else tmix_xos.tolist() # align to fit component centers
 
@@ -516,7 +520,10 @@ def measureburst(
 		printd(f"Debug: pre-filters {len(subdf) = }")
 		subdf = subdf[(subdf.amp > 0)]
 		subdf = subdf[subdf.tstart_err/subdf.tstart < 10]
-		subdf = subdf[(subpktime-t_filter_factor*sigma < subdf[tpoint]) & (subdf[tpoint] < subpktime+t_filter_factor*sigma)]
+		subdf = subdf[
+			(subpktime-t_filter_factor*sigma < subdf[tpoint]) &
+			(subdf[tpoint] < subpktime+t_filter_factor*sigma)
+		]
 		printd(f"Debug: post-filters {len(subdf) = }")
 
 		if bwidth != 1:
@@ -838,7 +845,15 @@ def measureburst(
 			# print(f"freq chan: {ychan} time chan: {xchan} {np.mean(wfall[ychan//downfactors[0]]) = }")
 	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
-	if show: plt.show()
+	if show:
+		plt.show()
+		# Monitor hack
+		# mngr = plt.get_current_fig_manager()
+		# # to put it into the upper left corner for example:
+		# # mngr.window.setGeometry(50,100,640, 545) # newX, newY, dx, dy
+		# geom = mngr.window.geometry()
+		# x,y,dx,dy = geom.getRect()
+		# print(x, y, dx, dy)
 	if save:
 		if outdir == '' or outdir[-1] == '/':
 			outname = f"{outdir}{bname}.png"
