@@ -202,11 +202,13 @@ def measureburst(
 	crop=None,
 	masks=[],
 	submasks=None,
-	return_arrivaltimes=False,
-	outdir='',
 	show=True,
 	show_components=False,
 	save=True,
+	outdir='',
+	outfmt='.png',
+	return_arrivaltimes=False,
+	return_fig=False,
 	loadonly=False,
 ):
 	""" Measure spectro-temporal properties of a burst, and output a figure
@@ -255,12 +257,14 @@ def measureburst(
 			The length of `submasks` must match the length of `xos`.
 			Example: To specify a mask on the 4th component of a waterfall with 4 components, pass
 			``submask=([],[],[],[22])``
-		return_arrivaltimes (bool, optional): If True, will return a dataframe of the arrival times per channel
 		show (bool, optional): if True show interactive figure window for each file
 		show_components (bool, optional): if True show figure window for each sub-burst
+		return_arrivaltimes (bool, optional): If True, will a dataframe of the arrival times per channel
+		return_fig (bool, optional): if True, return the matplotlib figure. The figure will not be closed.
 		save (bool, optional): if True save a figure displaying the measurements.
 		loadonly (bool, optional): if True will perform loading steps such as masking, dedispersing,
 			and downsampling, then return a tuple of wfall, freqs, times_ms, t_popt, DM, etc.
+		outfmt (str, optional): string of file format to save figure as. Default is '.png'. Include the '.' character.
 
 	Returns:
 		results (list): list of lists where each list is the result of the measurement.
@@ -288,7 +292,8 @@ def measureburst(
 			'tb_err'
 			```
 
-		arrtimesdf (pd.DataFrame): Only return when `return_arrivaltimes` is True.
+		arrtimesdf (pd.DataFrame): Only returned when `return_arrivaltimes` is True.
+		fig (matplotlib.fig): Matplotlib figure. Only returned when `return_fig` is True.
 	"""
 	if type(xos) == tuple:
 		if len(xos) != 2:
@@ -666,7 +671,7 @@ def measureburst(
 		vmax=np.quantile(wfall, 0.999),
 	)
 	ax_wfall.annotate(
-		f"$DM =$ {targetDM:.3f} pc/cm$^3$",
+		f"DM = {targetDM:.3f} pc/cm$^3$",
 		xy=(0.05, 0.925),
 		xycoords='axes fraction',
 		color='white',
@@ -856,16 +861,21 @@ def measureburst(
 		# print(x, y, dx, dy)
 	if save:
 		if outdir == '' or outdir[-1] == '/':
-			outname = f"{outdir}{bname}.png"
+			outname = f"{outdir}{bname}{outfmt}"
 		else:
-			outname = f"{outdir}/{bname}.png"
+			outname = f"{outdir}/{bname}{outfmt}"
 		fig.savefig(outname)
 		print(f"Info: Saved {outname}.")
 
-	plt.close()
-	if return_arrivaltimes:
+	if return_arrivaltimes and not return_fig:
+		plt.close()
 		return results, subdf
+	elif not return_arrivaltimes and return_fig:
+		return results, fig
+	elif return_arrivaltimes and return_fig:
+		return results, subdf, fig
 	else:
+		plt.close()
 		return results
 
 def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
