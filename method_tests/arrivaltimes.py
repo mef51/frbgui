@@ -20,12 +20,6 @@ def zero_line_model(nu, dtdnu):
 def line_model(nu, dtdnu, t_b):
 	return dtdnu * nu + t_b
 
-def line_model_nu0(nu, dtdnu, nu0):
-	return dtdnu * (nu - nu0)
-
-def line_model_nu0_fixed(nu0):
-	return (lambda nu, dtdnu: dtdnu * (nu - nu0))
-
 def gauss_model(x, a, xo, sigma):
 	return a*np.exp(-(x-xo)**2/(2*(sigma**2)))
 
@@ -206,8 +200,8 @@ def measureburst(
 	downfactors=(1,1),
 	subtractbg=False,
 	bw_filter='data_cutoff',
-	bw_filter_factor=3, # burst based filter factors are likely to help a lot with complex and blended components, and avoids having to do submasks
-	bw_filt_cutoff=3,
+	bw_width_factor=3, # burst based filter factors are likely to help a lot with complex and blended components, and avoids having to do submasks
+	snr_cutoff=3,
 	t_filter_factor=2,
 	crop=None,
 	masks=[],
@@ -264,13 +258,13 @@ def measureburst(
 		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is `'model_width'`. Options are
 			1. `'data_cutoff'`: filter out arrival times in channels where the 1 \\(\\sigma\\) on-pulse mean amplitude is < 10 times the noise amplitude
 			2. `'model_cutoff'`: filter out arrival times in channels where the 1d spectral model amplitude is < 10 times the noise amplitude
-			3. `'model_width'`: filter out arrival times that lie beyond a multiple of the 1d spectral model width \\(\\sigma\\). See ``bw_filter_factor``.
-		bw_filter_factor (int, optional): By default 3 \\(\\sigma\\) of the burst bandwidth is applied as a spectral filter.
+			3. `'model_width'`: filter out arrival times that lie beyond a multiple of the 1d spectral model width \\(\\sigma\\). See ``bw_width_factor``.
+		bw_width_factor (int, optional): By default 3 \\(\\sigma\\) of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first. Note that a
-			high `bw_filter_factor` such as 10-15 likely indicates the bandwidth measurement is being understimated.
-		bw_filt_cutoff (int, optional): The S/N cutoff to use when `bw_filter='data_cutoff'` or `bw_filter='model_cutoff'`.
-			By default equals 10.
+			high `bw_width_factor` such as 10-15 likely indicates the bandwidth measurement is being understimated.
+		snr_cutoff (int, optional): The S/N cutoff to use when `bw_filter='data_cutoff'` or `bw_filter='model_cutoff'`.
+			By default equals 3.
 		t_filter_factor (int, optional): By default 2 \\(\\sigma\\) of the burst duration is applied as a temporal filter.
 		outdir (str, optional): string of output folder for figures. Defaults to ''.
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
@@ -408,7 +402,7 @@ def measureburst(
 	pktime = np.nanargmax(tseries)*res_time_ms
 	t_popt, _ = fitgauss(tseries, duration) # whether one or many components, for ref in plot
 	print(f"Info: {bname}: {data['wfall'].shape = }, {wfall.shape = }.")
-	print(f"Info: Using {bw_filter = } and {bw_filt_cutoff = }")
+	print(f"Info: Using {bw_filter = } and {snr_cutoff = }")
 
 	if loadonly:
 		return (
@@ -473,23 +467,24 @@ def measureburst(
 	noisesmpls = []
 	bandpass = np.zeros(wfall.shape[0])
 	xos_chans = np.floor(np.array(xos)/res_time_ms)
+	noise_edges = []
 	for xoi, s in zip(xos_chans, tmix_sigmas):
 		s4 = np.floor(4*np.abs(s)/res_time_ms)
 		s1 = np.floor(1*np.abs(s)/res_time_ms)
 		if s4 == 0 or s1 == 0:
-			s4 = 10 # hack
-			s1 = 10 # hack
+			s4 = 4 # hack
+			s1 = 1 # hack
 			lbl = subburst_suffixes[np.where(xos_chans == xoi)[0][0]]
 			print(
-				f"Warning: Component ({lbl}) has width below the time resolution, possibly due to poor 1D fit"
+				f"Warning: Component ({lbl}) has width below the time resolution, possibly due to poor 1D fit. Using 1σ width as 1 channel."
 			)
 
 		if len(cuts) == 0:
 			# account for when the edge is outside of wfall
 			if xoi-s4 < 0:
-				subfall = wfall[..., :int(xoi+s4)]
+				subfall = wfall[..., :int(xoi+s4)+1]
 			else:
-				subfall = wfall[..., int(xoi-s4):int(xoi+s4)] # 4sigma window around burst
+				subfall = wfall[..., int(xoi-s4):int(xoi+s4)+1] # 4sigma window around burst
 		else:
 			cutchans = np.floor(np.array(cuts)/res_time_ms).astype(int)
 			if xoi < cutchans[0]: # left edge
@@ -507,27 +502,41 @@ def measureburst(
 
 				subfall = wfall[..., cutchans[prev_ci]:cutchans[next_ci]]
 
+		# Compute component and sample noise
+		# Slicing syntax: a[start:stop]  means items start through stop-1
+		# Therefore When slicing we add 1 to the end to include the ending channel.
+		ddof = 0 # Bessel's correction = 1
 		if xoi-s1 < 0:
-			subband = wfall[..., :int(xoi+s1)].mean(axis=1)
-			noisesmpls.append(
-				wfall[..., -int(xoi+s1):].std()
-			)
 			print("Info: Spectral filter noise level sampled from end of waterfall.")
+			subband = wfall[..., :int(xoi+s1)+1].mean(axis=1)
+			noisesmpls.append(
+				wfall[..., -int(xoi+s1):].std(axis=1, ddof=ddof)
+			)
+			noise_edges.append((len(wfall)-int(xoi+s1), len(wfall)-1))
 		elif xoi-s1 > wfall.shape[1]:
 			subband = wfall.mean(axis=1) # probably bad fit, take it all as a fallback
-			noisesmpls.append(wfall.std())
+			noisesmpls.append(wfall.std(axis=1, ddof=ddof))
+			noise_edges.append((0, len(wfall)-1))
 			if bw_filter != 'model_width':
 				print("Warning: Noise sample taken from whole waterfall. Spectral filter may be overly aggressive.")
 		else: # Compute spectrum by summing only 1 sigma from burst peak
-			# print('noise indices:', int(xoi-s1), int(xoi+s1)-int(xoi-s1), int(xoi+s1))
 			if int(xoi-s1) <= int(xoi+s1)-int(xoi-s1):
 				print("Warning: Noise sample overlaps with pulse region.")
-			subband = wfall[..., int(xoi-s1):int(xoi+s1)].mean(axis=1)
+
+			subband = wfall[..., int(xoi-s1):int(xoi+s1)+1].mean(axis=1)
 			noisesmpls.append(
-				wfall[..., :int(xoi+s1)-int(xoi-s1)].std(axis=1)
+				wfall[..., :int(xoi+s1)-int(xoi-s1)+1].std(axis=1, ddof=ddof)
 			)
-			printd("Noise time indices: ", int(xoi-s1),int(xoi+s1))
-			# print("num points:", wfall[..., :int(xoi+s1)-int(xoi-s1)].shape)
+			noise_edges.append((0, int(xoi+s1)-int(xoi-s1)+1))
+			printd(
+				f"{int(xoi-s1) = }, {int(xoi+s1) = }",
+				wfall[..., :int(xoi+s1)-int(xoi-s1)+1].shape,
+				wfall[..., int(xoi-s1):int(xoi+s1)+1].shape,
+				int(xoi-s1),
+				int(xoi+s1)
+			)
+			if wfall[..., :int(xoi+s1)-int(xoi-s1)+1].shape != wfall[..., int(xoi-s1):int(xoi+s1)+1].shape:
+				raise "Subband and noise sample regions differ in size. There's a bug in the code."
 
 		bandpass += subband
 		if len(cuts) == 0 and subtractbg: # need to be careful about bg subtraction when cutting
@@ -603,22 +612,21 @@ def measureburst(
 				bw_filter = 'model_width'
 			if bw_filter == 'data_cutoff':
 				if logdebug:
-					for n,s in zip(noisesmpl, subband):
-						printd(f"{n = } {s = } {s/n = }")
+					for f,n,s in zip(freqs,noisesmpl,subband):
+						printd(f"{f:.3f} MHz: {n = :.8f}\t{s = :.8f}\t{s/n = :.8f}")
 
 				subdf = subdf[ # freqs is the implied axis
-					# np.abs(subband/noisesmpl) > bw_filt_cutoff
-					subband/noisesmpl > bw_filt_cutoff
+					subband/noisesmpl > snr_cutoff
 				]
 			elif bw_filter == 'model_cutoff':
 				model = gauss_model(subdf['freqs'], *subband_popt)
 				subdf = subdf[
-					model/noisesmpl > bw_filt_cutoff
+					model/noisesmpl > snr_cutoff
 				]
 			elif bw_filter == 'model_width':
 				subdf = subdf[
-					(pkfreq-bw_filter_factor*bwidth < subdf['freqs']) &
-					(subdf['freqs'] < pkfreq+bw_filter_factor*bwidth)
+					(pkfreq-bw_width_factor*bwidth < subdf['freqs']) &
+					(subdf['freqs'] < pkfreq+bw_width_factor*bwidth)
 				]
 
 		subdf = subdf[(subdf.amp > 0)]
@@ -642,18 +650,6 @@ def measureburst(
 			perr = np.sqrt(np.diag(pcov))
 			dtdnu, dtdnu_err = popt[0], perr[0]
 			t_b, tb_err = popt[1], perr[1]
-
-			# frequency parametrized line model
-			# popt2, pcov2 = scipy.optimize.curve_fit(
-			# 	line_model_nu0,
-			# 	subdf['freqs'],
-			# 	subdf[tpoint] - subpktime,
-			# 	sigma=subdf[f'{tpoint}_err'],
-			# 	absolute_sigma=True,
-			# )
-			# perr2 = np.sqrt(np.diag(pcov))
-			# dtdnu2, dtdnu_err2 = popt2[0], perr2[0]
-			# nu0fit, nu0fit_err = popt2[1], perr2[1]
 
 			# print(f"{dtdnu = :.5e} +/- {dtdnu_err:.5e} ms/MHz")
 			# print(f"{dtdnu2 = :.5e} +/- {dtdnu_err2:.5e} ms/MHz")
@@ -816,7 +812,7 @@ def measureburst(
 	ax_wfall.set_xlabel("Time (ms)")
 	ax_wfall.set_ylabel("Frequency (MHz)")
 
-	# component lines
+	# Component lines
 	for (dtdnu, dtdnu_err), (tb, tb_err), xoi in zip(dtdnus, intercepts, xos):
 		if dtdnu != 0:
 			ax_wfall.plot(
@@ -826,6 +822,16 @@ def measureburst(
 				alpha=0.75,
 				# label=f'$dt/d\\nu = $ {dtdnu:.2e} $\\pm$ {dtdnu_err:.2e}'
 				label=f'{subburst_suffixes[xos.index(xoi)]}. $dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz'
+			)
+
+	# Noise sample lines
+	# s1 = np.floor(1*np.abs(s)/res_time_ms)
+	for ns in noise_edges:
+		for n in ns:
+			ax_wfall.axvline(
+				x=n*res_time_ms-pktime,
+				c='r',
+				ls='--'
 			)
 
 	if len(xos) > 1 and measure_drift:
@@ -845,7 +851,7 @@ def measureburst(
 		)
 		odrjob.set_job(fit_type=0)
 		odrfit = odrjob.run()
-		drift, drift_err = odrfit.beta[0], odrfit.sd_beta[0]
+		drift, drift_err = odrfit.beta[0], np.sqrt(np.diag(odrfit.cov_beta))[0]
 		ax_wfall.plot(
 			times_ms-pktime,
 			(1/drift)*(times_ms-pktime)+(-odrfit.beta[1]/drift),
@@ -943,7 +949,7 @@ def measureburst(
 
 	# plot filter windows (frequency)
 	for i, subbandpopt in enumerate(subbandpopts):
-		pkfreq, bw = subbandpopt[1], bw_filter_factor*subbandpopt[2]
+		pkfreq, bw = subbandpopt[1], bw_width_factor*subbandpopt[2]
 		rectwidth = np.max(bandpass_down)*0.035
 		axs['S'].add_patch(Rectangle(
 			(0.025+axs['S'].get_xlim()[0] + i*(rectwidth+0.025), pkfreq-bw),
@@ -1136,7 +1142,7 @@ def measuredrifts(
 		odrfit = odrjob.run()
 		# odrfit.pprint()
 
-		drift, drift_err = odrfit.beta[0], odrfit.sd_beta[0]
+		drift, drift_err = odrfit.beta[0], np.sqrt(np.diag(odrfit.cov_beta))[0]
 		rows.append([
 			burst,
 			targetdf['DM'][0],
