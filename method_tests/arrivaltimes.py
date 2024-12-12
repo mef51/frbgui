@@ -186,7 +186,8 @@ results_columns = [
 	'dtdnu (ms/MHz)',
 	'dtdnu_err',
 	'tb (ms)',
-	'tb_err'
+	'tb_err',
+	'num_arrtimes'
 ]
 def measureburst(
 	filename,
@@ -204,10 +205,13 @@ def measureburst(
 	snr_cutoff=3,
 	t_filter_factor=2,
 	crop=None,
+	# postcrop=None, # unimplemented
 	masks=[],
 	submasks=None,
+	bandmask_thres=None,
 	measure_drift=True,
 	show=True,
+	figsize=(10, 8), # (10, 9) for paper, (10,8) for screen
 	show_components=False,
 	cmap_norm='linear',
 	cmap='viridis',
@@ -222,6 +226,7 @@ def measureburst(
 	hide_legend=False,
 	legendloc=1,
 	label_components=False,
+	tpoint='tstart'
 ):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
@@ -243,8 +248,8 @@ def measureburst(
 			User must make sure their cuts make sense (i.e. in between burst centers).
 			Typically, if one cut is needed, then all bursts should be cut as well even if well separated.
 		sigmas (List[float], optional): initial guesses for the width sigma when finding the 1-dimensional gaussian model
-			to the time series. Must be the same length as ``xos``
-		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
+			to the time series. Must be the same length as `xos`
+		fix_xos (bool, optional): Default False. Whether or not to fix the passed `xos` when fitting the 1d model.
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
 		tolms (float, optional): Tolerance in milliseconds to use when ``fix_xos`` is True. Default is 0.01 ms.
@@ -278,10 +283,19 @@ def measureburst(
 			``submask=([],[],[],[22])``.
 			This is also a good way to filter out misbehaving components in an otherwise well-measured waterfall
 			and is useful for complicated bursts.
+		bandmask_thres (float or list[float], optional): The intensity threshold in the integrated spectrumabove which
+			points should be ignored when performing burst fits. This is primarily useful for masking scintillation peaks in order to
+			obtain more accurate burst bandwidth measurements. The appropriate level can be inferred from the output plot, or, if there are
+			multiple components, using the plot output when `show_components=True`, since the spectrum normally shown is integrated
+			over all components. When a single value is specified, it will be applied to all components if there are more than one. To specify
+			a different threshold for each component, pass a list of values, using `None` when no spectral masking is to be applied.
+			For example: a 3-component waterfall may have `bandmask_thres=[None, 0.1, 0.12]`. Note that this will only affect the bandwidth
+			measurement and not interact with the arrival times in each channel.
 		measure_drift (bool, optional): When True (default), and if `len(xos) > 1` (i.e. there are multiple burst components), will measure
 			the drift rate using the times and center frequencies of the bursts to fit a line. Will also plot a corresponding
 			line showing the drift rate measurement. Set to False to disable this behaviour.
 		show (bool, optional): if True show interactive figure window for each file
+		figsize (tuple, optional): figsize passed to matplotlib used for main output figure.
 		show_components (bool, optional): if True show figure window for each sub-burst
 		cmap_norm (str, optional) The colormap normalization `norm` parameter passed to matplotlib's imshow command
 			when plotting the waterfall. Default is 'linear', other options are 'log', 'symlog', 'logit',
@@ -301,7 +315,8 @@ def measureburst(
 		hide_legend (bool, optional): Hides the legend in the output if True.
 		legendloc (int or str, optional): Set the location of the legend. Passed to matplotlib's loc argument when the legend is called.
 		label_components (bool, optional): If True, label components filters in the time series plot. Useful for complicated waterfalls.
-
+		tpoint (str, optional): One of 'tstart' (default), 'tend', or 'xo'.
+			Use to measure the slope based on the central peak in each channel, or based on the ending time in each channel.
 
 	Returns:
 		results (list): list of lists where each list is the result of the measurement.
@@ -464,6 +479,13 @@ def measureburst(
 		if len(submasks) != len(xos):
 			raise ValueError(f"Please ensure the length of xos and submasks match. {len(xos) = } {len(submasks) = }")
 
+	if not bandmask_thres:
+		bandmask_thres = (None,)*len(xos)
+	elif type(bandmask_thres) != list: # assuming its a number, apply it to all components
+		bandmask_thres = [bandmask_thres,]*len(xos)
+	elif type(bandmask_thres) == list and (len(bandmask_thres) != len(xos)):
+		raise ValueError(f"Please ensure the length of xos and bandmask_thres match. {len(xos) = } {len(bandmask_thres) = }")
+
 	subfalls = []
 	subbands = []
 	# sample of noise levels matching
@@ -563,8 +585,16 @@ def measureburst(
 		'brown'
 	])
 
-	for subfall, subband, xosi, xosi_err, sigma, sigma_err, submask, noisesmpl in zip(
-		subfalls, subbands, xos, xos_errs, tmix_sigmas, tmix_sigma_errs, submasks, noisesmpls
+	for subfall, subband, xosi, xosi_err, sigma, sigma_err, submask, bandmask_thresi, noisesmpl in zip(
+		subfalls,
+		subbands,
+		xos,
+		xos_errs,
+		tmix_sigmas,
+		tmix_sigma_errs,
+		submasks,
+		bandmask_thres,
+		noisesmpls
 	):
 		for m in submask:
 			if type(m) == range:
@@ -589,20 +619,36 @@ def measureburst(
 			subbandpopts = subbandpopts[1:]
 			subbandperrs = subbandperrs[1:]
 		else:
+			if bandmask_thresi: # remove points above the threshold for fitting
+				subband_fit = subband[subband < bandmask_thresi]
+				freqs_fit   = freqs[(subband < bandmask_thresi).nonzero()]
+			else:
+				subband_fit, freqs_fit = subband, freqs
 			try:
 				subband_popt, subband_pcov = scipy.optimize.curve_fit(
 					gauss_model,
-					freqs,
-					subband/np.max(subband),
+					freqs_fit,
+					subband_fit/np.max(subband_fit),
 					p0=[
 						1,
 						fo,
-						np.sqrt(abs(sum(subband*(freqs-fo)**2)/sum(subband))) # sigma
+						np.sqrt(abs(sum(subband_fit*(freqs_fit-fo)**2)/sum(subband_fit))) # sigma
 					],
 				)
+				subband_popt[0] *= np.max(subband_fit)
 				subband_perr = np.sqrt(np.diag(subband_pcov))
+
+				## Diagnostic plot for spectrum fit:
+				if False:
+					plt.plot(freqs, subband, 'rX', ms=4)
+					plt.plot(freqs_fit, subband_fit, 'k.')
+					if bandmask_thresi:
+						plt.axhline(y=bandmask_thresi, c='r', ls='--')
+					plt.plot(freqs,gauss_model(freqs, *subband_popt))
+					plt.show();plt.close()
+
 			except (RuntimeError,ValueError) as e:
-				print(f"Warning: Spectrum fit failed.")
+				print(f"Warning: Spectrum fit failed.", e)
 				subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
 
 		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
@@ -635,10 +681,10 @@ def measureburst(
 
 		subdf = subdf[(subdf.amp > 0)]
 		subdf = subdf[subdf.tstart_err/subdf.tstart < 10]
-		subdf = subdf[
+		subdf = subdf[ # time window filter
 			(subpktime-t_filter_factor*sigma < subdf[tpoint]) &
-			(subdf[tpoint] < subpktime+t_filter_factor*sigma) # full witdh
-			# (subdf[tpoint] < subpktime) # arrival time must be before pktime
+			(subdf[tpoint] < subpktime+t_filter_factor*sigma) # full width
+			# (subdf[tpoint] < subpktime) # arrival time must be before pktime, just playing
 		]
 		printd(f"Debug: post-filters {len(subdf) = }")
 
@@ -667,7 +713,7 @@ def measureburst(
 		if show_components:
 			subfig, subaxs = plotburst(
 				subfall,
-				subband.reshape(-1, 4).mean(axis=1),
+				subband,#.reshape(-1, 4).mean(axis=1),
 				retfig=True,
 				extent=[
 					0,
@@ -701,6 +747,8 @@ def measureburst(
 				gauss_model(freqs, *subband_popt),
 				freqs
 			)
+			if bandmask_thresi:
+				plt.axvline(x=bandmask_thresi, c='r', ls='--')
 			plt.show()
 			plt.close()
 		subbandmodels.append(gauss_model(freqs, *subband_popt))
@@ -727,6 +775,8 @@ def measureburst(
 		subbandperrs.append(subband_perr)
 		subdfs.append(subdf)
 		# print(f"{dtdnu = } +/- {dtdnu_err = }")
+		# print(f"{rowname} number of arrival times: {len(subdf) = }")
+		print(f"{bwidth = :.3f} +/- {bwidth_err:.3f} MHz")
 
 		rowname = bname if len(xos) == 1 else f'{bname}_{subburst_suffixes[xos.index(xosi)]}'
 		results.append([ # see `results_columns`
@@ -743,7 +793,8 @@ def measureburst(
 			dtdnu,		# 'dtdnu (ms/MHz)',
 			dtdnu_err,	# 'dtdnu_err',
 			t_b,		# 'tb (ms)',
-			tb_err		# 'tb_err'
+			tb_err,		# 'tb_err'
+			len(subdf)  # 'num_arrtimes'
 		])
 
 	subdf = pd.concat(subdfs)
@@ -777,7 +828,7 @@ def measureburst(
 		AS
 		EE
 		''',
-		figsize=(10, 9),
+		figsize=figsize,
 		width_ratios=[3,1],
 		# gridspec_kw={'hspace':0.464}
 	)
@@ -793,6 +844,7 @@ def measureburst(
 		extent=extent,
 		norm=cmap_norm,
 		vmax=np.quantile(wfall, 0.999),
+		# vmin=5, # hewitt microshots
 	)
 	ax_wfall.annotate(
 		f"DM = {targetDM:.3f} pc/cm$^3$",
@@ -931,11 +983,10 @@ def measureburst(
 	)
 
 	### Summed Spectrum (summed over burst widths). Total and individual
-	downband = 4
+	downband = 1
 	if len(bandpass) % downband != 0:
 		downband = smallestdivisor(len(bandpass))
 	bandpass_down = bandpass.reshape(-1, downband).mean(axis=1)
-	bandpass_down = bandpass_down / np.max(bandpass_down)
 	axs['S'].stairs(
 		bandpass_down,
 		np.linspace(*extent[2:], num=len(bandpass_down)+1),
@@ -951,17 +1002,58 @@ def measureburst(
 			zorder=-1
 		)
 
+	for bandmask_thresi, subband in zip(bandmask_thres, subbands):
+		if bandmask_thresi:
+			mask_freqs = freqs[(subband > bandmask_thresi).nonzero()]
+			axs['S'].scatter(
+				bandpass_down[subband > bandmask_thresi],
+				mask_freqs,
+				color='r',
+				marker='x',
+				s=10,
+			)
+			if len(mask_freqs) > 0: # technically region where SOME channels are masked
+				tmplims = axs['S'].get_xlim()
+				axs['S'].fill_betweenx(
+					mask_freqs[[0,-1]],
+					*(10*np.array(axs['S'].get_xlim())),
+					hatch='x',
+					color='r',
+					alpha=0.05
+				)
+				axs['S'].set_xlim(tmplims)
+
+	# plot 1 sigma burst bandwidth region
+	for subbandpopt in subbandpopts:
+		pkfreq, bw_1σ = subbandpopt[1], subbandpopt[2]
+
+		tmplims = axs['S'].get_xlim() # hack for region not extending all the way
+		axs['S'].fill_betweenx(
+			[pkfreq-bw_1σ, pkfreq+bw_1σ],
+			*(10*np.array(axs['S'].get_xlim())),
+			zorder=-20,
+			alpha=0.75,
+			color='cyan'
+		)
+		axs['S'].axhline(
+			y=pkfreq,
+			ls='-.',
+			zorder=-19
+		)
+		axs['S'].set_xlim(tmplims)
+
 	# plot filter windows (frequency)
-	for i, subbandpopt in enumerate(subbandpopts):
-		pkfreq, bw = subbandpopt[1], bw_width_factor*subbandpopt[2]
-		rectwidth = np.max(bandpass_down)*0.035
-		axs['S'].add_patch(Rectangle(
-			(0.025+axs['S'].get_xlim()[0] + i*(rectwidth+0.025), pkfreq-bw),
-			height=2*bw,
-			width=rectwidth,
-			color='tomato',
-			alpha=0.5
-		))
+	if bw_filter == 'model_width':
+		for i, subbandpopt in enumerate(subbandpopts):
+			pkfreq, bw = subbandpopt[1], bw_width_factor*subbandpopt[2]
+			rectwidth = np.max(bandpass_down)*0.035
+			axs['S'].add_patch(Rectangle(
+				(0.025+axs['S'].get_xlim()[0] + i*(rectwidth+0.025), pkfreq-bw),
+				height=2*bw,
+				width=rectwidth,
+				color='tomato',
+				alpha=0.5
+			))
 
 	axs['T'].sharex(axs['A'])
 	axs['A'].sharey(axs['S'])
@@ -988,12 +1080,13 @@ def measureburst(
 	ax_slope.plot(freqs, dtdnu*freqs+t_b, 'k--')
 	ax_slope.annotate(
 		f"$dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz \n$\\sigma_t =$ {scilabel(sigma, sigma_err)} ms",
-		xy=(0.7, 0.6),
+		xy=(0.99, 0.15),
+		ha='right',
 		xycoords='axes fraction',
-		color='white',
+		color='k',
 		weight='black',
-		size=10,
-		bbox={"boxstyle":"round"}
+		size=11,
+		bbox={"boxstyle":"round", 'alpha': 0.3}
 	)
 	ax_slope.set_xlabel("Frequency (MHz)")
 	ax_slope.set_ylabel("Time (ms)")
@@ -1010,8 +1103,8 @@ def measureburst(
 			zorder=-1,
 		)
 
+	# 1 sigma regions used for spectrum
 	for s, xoi in zip(tmix_sigmas, xos):
-		# 1 sigma regions used for spectrum
 		# for xsig in [xoi-pktime-np.abs(s), xoi-pktime+np.abs(s)]:
 		# 	ax_tseries.axvline(x=xsig, alpha=1, color='beige', zorder=-20)
 		tmplims = ax_tseries.get_ylim() # hack for region not extending all the way
