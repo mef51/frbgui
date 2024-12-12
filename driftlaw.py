@@ -58,7 +58,7 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 	if channelSpaceDuration: # hack to force channel space equation for old measurements
 		frame['tau_w_ms'] = frame['tau_w_ms_old']
 
-	frame['bandwidth (mhz)'] = abs(2*np.sqrt(2*np.log(2))*frame['max_sigma']*np.cos(frame['theta']-np.pi/2))
+	frame['bandwidth (mhz)'] = abs(2*np.sqrt(2*np.log(2))*frame['max_sigma']*np.cos(frame['theta']-np.pi/2)) # FWHM
 	frame['bandwidth error (mhz)'] = abs(2*np.sqrt(2*np.log(2))*np.sqrt((frame['max_sigma_error']*np.cos(frame['theta']-np.pi/2))**2 + (frame['max_sigma']*frame['angle_error']*np.sin(frame['theta']-np.pi/2))**2))
 	## Redshift corrections
 	if 'z' in frame.index:

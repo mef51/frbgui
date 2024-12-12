@@ -571,7 +571,7 @@ def processBurst(
 			popt, pcov = fitdatagaussiannlsq(
 				corr,
 				corrextents,
-				p0=[1,0,0,1,100,0,0] if p0 == [] else p0+[0],
+				p0=[1,0,0,1,100,0,0] if p0 == [] else p0,
 				sigma=autocorr_sigma,
 				bounds=bounds,
 				model=twoD_Gaussian_floor
@@ -871,7 +871,7 @@ def readRegions(resultsdf):
 			regionsobj[name][suffix] = list(resultsdf.loc[name][[f'regstart_{suffix}', f'regend_{suffix}']].iloc[0])
 	return regionsobj
 
-def scilabel(num, err):
+def scilabel(num, err, prec=1):
 	"""Utility for pretty scientific notation labels
 
 	e.g. (6.0 +/- 0.3) $\\times 10^2$ MHz/ms
@@ -886,8 +886,8 @@ def scilabel(num, err):
 	sign = '' if num > 0 else '-'
 	num = abs(num)
 	return (
-		f'({sign}{num/(10**np.floor(np.log10(num))):.1f}'
-		f'$\\pm$ {err/(10**np.floor(np.log10(num))):.1f})'
+		f'({sign}{num/(10**np.floor(np.log10(num))):.{prec}f}'
+		f'$\\pm${err/(10**np.floor(np.log10(num))):.{prec}f})'
 		f'$\\times 10^{{{np.floor(np.log10(num)):.0f}}}$'
 	)
 
