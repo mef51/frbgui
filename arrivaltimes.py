@@ -248,8 +248,8 @@ def measureburst(
 			User must make sure their cuts make sense (i.e. in between burst centers).
 			Typically, if one cut is needed, then all bursts should be cut as well even if well separated.
 		sigmas (List[float], optional): initial guesses for the width sigma when finding the 1-dimensional gaussian model
-			to the time series. Must be the same length as `xos`
-		fix_xos (bool, optional): Default False. Whether or not to fix the passed `xos` when fitting the 1d model.
+			to the time series. Must be the same length as ``xos``
+		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
 		tolms (float, optional): Tolerance in milliseconds to use when ``fix_xos`` is True. Default is 0.01 ms.
@@ -260,25 +260,25 @@ def measureburst(
 		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
 		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
 			By default will do a background subtraction using 10% of channels on the whole waterfall.
-			Pass `(False, False)` to skip both rounds of background subtraction.
-		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is `'model_width'`. Options are
-			1. `'data_cutoff'`: filter out arrival times in channels where the 1 \\(\\sigma\\) on-pulse mean amplitude is < 10 times the noise amplitude
-			2. `'model_cutoff'`: filter out arrival times in channels where the 1d spectral model amplitude is < 10 times the noise amplitude
-			3. `'model_width'`: filter out arrival times that lie beyond a multiple of the 1d spectral model width \\(\\sigma\\). See ``bw_width_factor``.
+			Pass ``(False, False)`` to skip both rounds of background subtraction.
+		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is ``'model_width'``. Options are
+			1. ``'data_cutoff'``: filter out arrival times in channels where the 1 \\(\\sigma\\) on-pulse mean amplitude is < 10 times the noise amplitude
+			2. ``'model_cutoff'``: filter out arrival times in channels where the 1d spectral model amplitude is < 10 times the noise amplitude
+			3. ``'model_width'``: filter out arrival times that lie beyond a multiple of the 1d spectral model width \\(\\sigma\\). See ``bw_width_factor``.
 		bw_width_factor (int, optional): By default 3 \\(\\sigma\\) of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first. Note that a
-			high `bw_width_factor` such as 10-15 likely indicates the bandwidth measurement is being understimated.
-		snr_cutoff (int, optional): The S/N cutoff to use when `bw_filter='data_cutoff'` or `bw_filter='model_cutoff'`.
+			high ``bw_width_factor`` such as 10-15 likely indicates the bandwidth measurement is being understimated.
+		snr_cutoff (int, optional): The S/N cutoff to use when ``bw_filter='data_cutoff'`` or ``bw_filter='model_cutoff'``.
 			By default equals 3.
 		t_filter_factor (int, optional): By default 2 \\(\\sigma\\) of the burst duration is applied as a temporal filter.
 		outdir (str, optional): string of output folder for figures. Defaults to ''.
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
 		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling
 		submasks (tuple[List[int]], optional): tuple of length `xos` of lists of indices to mask on a subcomponent's waterfall.
-			Note that contrary to `masks`, these are applied after downsampling.
+			Note that contrary to ``masks``, these are applied after downsampling.
 			Indices are scaled from the original size to the downsampled size and so can cover more than one channel.
-			The length of `submasks` must match the length of `xos`.
+			The length of ``submasks`` must match the length of ``xos``.
 			Example: To specify a mask on the 4th component of a waterfall with 4 components, pass
 			``submask=([],[],[],[22])``.
 			This is also a good way to filter out misbehaving components in an otherwise well-measured waterfall
@@ -286,18 +286,18 @@ def measureburst(
 		bandmask_thres (float or list[float], optional): The intensity threshold in the integrated spectrumabove which
 			points should be ignored when performing burst fits. This is primarily useful for masking scintillation peaks in order to
 			obtain more accurate burst bandwidth measurements. The appropriate level can be inferred from the output plot, or, if there are
-			multiple components, using the plot output when `show_components=True`, since the spectrum normally shown is integrated
+			multiple components, using the plot output when ``show_components=True``, since the spectrum normally shown is integrated
 			over all components. When a single value is specified, it will be applied to all components if there are more than one. To specify
-			a different threshold for each component, pass a list of values, using `None` when no spectral masking is to be applied.
-			For example: a 3-component waterfall may have `bandmask_thres=[None, 0.1, 0.12]`. Note that this will only affect the bandwidth
+			a different threshold for each component, pass a list of values, using ``None`` when no spectral masking is to be applied.
+			For example: a 3-component waterfall may have ``bandmask_thres=[None, 0.1, 0.12]``. Note that this will only affect the bandwidth
 			measurement and not interact with the arrival times in each channel.
-		measure_drift (bool, optional): When True (default), and if `len(xos) > 1` (i.e. there are multiple burst components), will measure
+		measure_drift (bool, optional): When True (default), and if ``len(xos) > 1`` (i.e. there are multiple burst components), will measure
 			the drift rate using the times and center frequencies of the bursts to fit a line. Will also plot a corresponding
 			line showing the drift rate measurement. Set to False to disable this behaviour.
 		show (bool, optional): if True show interactive figure window for each file
 		figsize (tuple, optional): figsize passed to matplotlib used for main output figure.
 		show_components (bool, optional): if True show figure window for each sub-burst
-		cmap_norm (str, optional) The colormap normalization `norm` parameter passed to matplotlib's imshow command
+		cmap_norm (str, optional) The colormap normalization ``norm`` parameter passed to matplotlib's imshow command
 			when plotting the waterfall. Default is 'linear', other options are 'log', 'symlog', 'logit',
 			or matplotlib's Normalize class.
 		cmap (str, optional): matplotlib colormap to use for waterfall
@@ -310,8 +310,8 @@ def measureburst(
 		save_solutions (bool, optional): setting to True will save a file inside of the folder specified by outdir
 			that contains the fit solution data for the 1d time series and the spectrum of each component. Useful for reviewing
 			measurements of bursts with many components that take a long time to analyse. Output filename will be of the form
-			`f'{bname}.sols.npz'. Default False
-		load_solutions (str, optional): Filename of solutions file generated by `save_solutions` option. Default is None
+			``f'{bname}.sols.npz'``. Default False
+		load_solutions (str, optional): Filename of solutions file generated by ``save_solutions`` option. Default is None
 		hide_legend (bool, optional): Hides the legend in the output if True.
 		legendloc (int or str, optional): Set the location of the legend. Passed to matplotlib's loc argument when the legend is called.
 		label_components (bool, optional): If True, label components filters in the time series plot. Useful for complicated waterfalls.
@@ -319,17 +319,11 @@ def measureburst(
 			Use to measure the slope based on the central peak in each channel, or based on the ending time in each channel.
 
 	Returns:
-		results (list): list of lists where each list is the result of the measurement.
+		(list): ``results`` list of lists where each list is the result of the measurement.
 			This array can be used to make a pandas dataframe in the following way:
-			```
-			resultsdf = pd.DataFrame(
-				data=results,
-				columns=arrivaltimes.results_columns
-			).set_index('name')
-			```
-
+			``resultsdf = pd.DataFrame(data=results, columns=arrivaltimes.results_columns).set_index('name')``
 			where the columns of the dataframe are
-			```
+			``
 			'name',
 			'DM',
 			'center_f (MHz)',
@@ -342,10 +336,11 @@ def measureburst(
 			'dtdnu_err',
 			'tb (ms)', # t_b
 			'tb_err'
-			```
+			``
 
 		arrtimesdf (pd.DataFrame): Only returned when `return_arrivaltimes` is True.
 		fig (matplotlib.fig): Matplotlib figure. Only returned when `return_fig` is True.
+
 	"""
 	if type(xos) == tuple:
 		if len(xos) != 2:

@@ -121,14 +121,14 @@ Publications
 
 In addition to the above paper FRBGui has been used in the following studies:
 
-* *Validating the Sub-Burst Slope Law: A Comprehensive Multi-Source Spectro-Temporal Analysis of Repeating Fast Radio Bursts*, Brown, Katie; Chamma, Mohammed A.; Rajabi, Fereshteh; Kumar, Aishwarya; Rajabi, Hosein; Houde, Martin. Submitted. `arXiv:2308.11729 <https://arxiv.org/pdf/2308.11729.pdf>`_
+* *Validating the Sub-Burst Slope Law: A Comprehensive Multi-Source Spectro-Temporal Analysis of Repeating Fast Radio Bursts*, Brown, Katie; Chamma, Mohammed A.; Rajabi, Fereshteh; Kumar, Aishwarya; Rajabi, Hosein; Houde, Martin. (Jan 2024) MNRAS:Letters, Vol. 529 No. 1 p.L152-158. `doi:10.1093/mnrasl/slae012 <https://doi.org/10.1093/mnrasl/slae012>`_
 
+* *Characterization of the repeating FRB 20220912A with the Allen Telescope Array*, Sheikh, Sofia Z. et al. (Jan 2024). MNRAS , Vol. 527 No. 4 p. 10425-10439. `doi:10.1093/mnras/stad3630 <https://doi.org/10.1093/mnras/stad3630>`_
 
 Attributions
 ------------
 
 `Meteor icon created by Freepik - Flaticon <https://www.flaticon.com/free-icons/meteor>`_
-
 
 .. Overview
 

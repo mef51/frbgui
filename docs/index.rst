@@ -32,11 +32,11 @@ Please visit :ref:`Overview and Installation <overview>` to get started.
 	:caption: Documentation
 
 	documentation/doc-scripting
+	documentation/doc-arrivaltimes
 
 .. toctree::
 	:maxdepth: 2
 	:caption: Reference
 
 	reference/ref-output
-	reference/ref-acfmethod
 

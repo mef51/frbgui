@@ -14,7 +14,7 @@ setuptools.setup(
 	long_description_content_type="text/markdown",
 	url="https://github.com/mef51/frbgui",
 	#packages=setuptools.find_packages(),
-	py_modules=['frbgui', 'driftrate', 'driftlaw'],
+	py_modules=['frbgui', 'driftrate', 'driftlaw', 'arrivaltimes'],
 	install_requires=[
 		'matplotlib>=3.7.2',
 		'numpy>=1.24.4',

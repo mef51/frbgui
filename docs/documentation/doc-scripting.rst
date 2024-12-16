@@ -14,8 +14,6 @@ These can be accessed with
 	import driftrate
 	import driftlaw
 
-**This page is currently under construction and may be incomplete.**
-
 ``frbgui`` module
 -----------------
 
