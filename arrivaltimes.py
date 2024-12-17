@@ -261,17 +261,18 @@ def measureburst(
 		subtractbg (bool, tuple[bool], optional): Perform a second background subtraction on subbursts.
 			By default will do a background subtraction using 10% of channels on the whole waterfall.
 			Pass ``(False, False)`` to skip both rounds of background subtraction.
-		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is ``'model_width'``. Options are
-			1. ``'data_cutoff'``: filter out arrival times in channels where the 1 \\(\\sigma\\) on-pulse mean amplitude is < 10 times the noise amplitude
-			2. ``'model_cutoff'``: filter out arrival times in channels where the 1d spectral model amplitude is < 10 times the noise amplitude
-			3. ``'model_width'``: filter out arrival times that lie beyond a multiple of the 1d spectral model width \\(\\sigma\\). See ``bw_width_factor``.
-		bw_width_factor (int, optional): By default 3 \\(\\sigma\\) of the burst bandwidth is applied as a spectral filter.
+		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is ``'data_cutoff'``. Options are
+
+			1. ``'data_cutoff'``: filter out arrival times in channels where the 1σ on-pulse mean amplitude is < 3 (see ``snr_cutoff``) times the noise amplitude
+			2. ``'model_cutoff'``: filter out arrival times in channels where the 1d spectral model amplitude is < 3 (see ``snr_cutoff``) times the noise amplitude
+			3. ``'model_width'``: filter out arrival times that lie beyond a multiple of the 1d spectral model width (σ). See ``bw_width_factor``.
+		bw_width_factor (int, optional): When using ``bw_filter=model_width``, 3σ of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first. Note that a
 			high ``bw_width_factor`` such as 10-15 likely indicates the bandwidth measurement is being understimated.
 		snr_cutoff (int, optional): The S/N cutoff to use when ``bw_filter='data_cutoff'`` or ``bw_filter='model_cutoff'``.
 			By default equals 3.
-		t_filter_factor (int, optional): By default 2 \\(\\sigma\\) of the burst duration is applied as a temporal filter.
+		t_filter_factor (int, optional): By default 2σ of the burst duration is applied as a temporal filter.
 		outdir (str, optional): string of output folder for figures. Defaults to ''.
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
 		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling
@@ -321,8 +322,11 @@ def measureburst(
 	Returns:
 		(list): ``results`` list of lists where each list is the result of the measurement.
 			This array can be used to make a pandas dataframe in the following way:
+
 			``resultsdf = pd.DataFrame(data=results, columns=arrivaltimes.results_columns).set_index('name')``
+
 			where the columns of the dataframe are
+
 			``
 			'name',
 			'DM',
