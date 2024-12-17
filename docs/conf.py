@@ -46,3 +46,4 @@ html_static_path = ['_static']
 html_extra_path = ['tutorials/files']
 html_css_files = ['style.css']
 
+pygments_style = 'sphinx'

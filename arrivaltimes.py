@@ -230,17 +230,19 @@ def measureburst(
 ):
 	""" Measure spectro-temporal properties of a burst, and output a figure
 
-	Compute the inverse sub-burst slope (dt/dnu) using the per-row arrival time method
+	Compute the inverse sub-burst slope (dt/dnu) using the per-row arrival time method.
+
 	Compute the duration and bandwidth by finding a 1-dimensional gaussian model
-	to the integrated time series and spectrum, respectively. The duration and bandwidth are the
-	1 sigma widths of either fit.
-	Compute the center frequency as the center of the 1d spectrum model
+	to the integrated time series and spectrum, respectively.
+	The duration and bandwidth are the 1 sigma widths of either fit.
+
+	Compute the center frequency as the center of the 1d spectrum model.
 
 	If multiple components are present, split them up and measure individually. The number
-	of components to fit for is equal to ``len(xos)``
+	of components to fit for is equal to ``len(xos)``.
 
 	Args:
-		filename (str): filename to npz of a *dedispersed* burst waterfall. Conforms to frbgui's burst format.
+		filename (str): filename to .npz of a *dedispersed* burst waterfall. File is expected to follow frbgui's :ref:`burstformat`.
 		xos (List[float] or 2-tuple of List[float], optional): List of times in ms of sub-burst centers.
 			Can be approximate. If a 2-tuple, the second list is used as the location(s) to cut the waterfall.
 			Using the ``cuts`` option instead is equivalent to using the 2 tuple option.
@@ -323,24 +325,29 @@ def measureburst(
 		(list): ``results`` list of lists where each list is the result of the measurement.
 			This array can be used to make a pandas dataframe in the following way:
 
-			``resultsdf = pd.DataFrame(data=results, columns=arrivaltimes.results_columns).set_index('name')``
+			.. code-block:: python
+
+				resultsdf = pd.DataFrame(
+					data=results,
+					columns=arrivaltimes.results_columns
+				).set_index('name')
 
 			where the columns of the dataframe are
 
-			``
-			'name',
-			'DM',
-			'center_f (MHz)',
-			'center_f_err',
-			'duration (ms)',
-			'duration_err',
-			'bandwidth (MHz)',
-			'bandwidth_err',
-			'dtdnu (ms/MHz)',
-			'dtdnu_err',
-			'tb (ms)', # t_b
-			'tb_err'
-			``
+			.. code-block:: python
+
+				'name',
+				'DM',
+				'center_f (MHz)',
+				'center_f_err',
+				'duration (ms)',
+				'duration_err',
+				'bandwidth (MHz)',
+				'bandwidth_err',
+				'dtdnu (ms/MHz)',
+				'dtdnu_err',
+				'tb (ms)', # t_b
+				'tb_err'
 
 		arrtimesdf (pd.DataFrame): Only returned when `return_arrivaltimes` is True.
 		fig (matplotlib.fig): Matplotlib figure. Only returned when `return_fig` is True.
