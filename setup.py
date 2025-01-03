@@ -6,7 +6,7 @@ def readme():
 
 setuptools.setup(
 	name="frbgui",
-	version="0.10.0",
+	version="0.11.0",
 	author="Mohammed Chamma",
 	author_email="mchamma@uwo.ca",
 	description="GUI and utilities for processing Fast Radio Burst waterfalls",
