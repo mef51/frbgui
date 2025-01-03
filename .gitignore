@@ -52,6 +52,7 @@ SurveyFRB20121102A/datasources/
 SurveyFRB20121102A/talk/
 SurveyFRB20121102A/18wfall_processing/
 texturebug*
+buildnotes.md
 
 # rtd
 docs/_build/

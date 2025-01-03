@@ -29,7 +29,7 @@ The GUI is extensible and pull requests are welcome.
 
 ## Status
 
-Currently FRBGui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). FRBGui is functional and can produce thousands of measurements but is quirky, buggy, and not tested on different platforms. FRBGui will run on most platforms but with varying performance.
+FRBGui works best with waterfalls saved as 2d numpy arrays (See [Usage](#usage) for more details). FRBGui is functional and can produce thousands of measurements, and is occasionally buggy. FRBGui will run on most platforms but with varying performance.
 
 ## Installation
 
