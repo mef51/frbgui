@@ -23,7 +23,7 @@ def computeModelDetails(frame, channelSpaceDuration=False):
 
 	frame['slope_abs'] = -1*(frame['slope (mhz/ms)']) # multiply be negative 1 because of later measurement exclusions
 	frame['slope_over_nuobs'] = frame[['slope_abs','center_f']].apply(lambda row: row['slope_abs'] / row['center_f'], axis=1)
-	frame['slope_over_nuobs_err'] = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
+	frame['slope_over_nuobs_err'] = frame['slope error (mhz/ms)']/frame['center_f']
 	frame['recip_slope_over_nuobs'] = frame['center_f'] / np.tan(frame['theta']) # ms/MHz
 	frame['recip_norm_slope_err'] = frame['center_f']*(frame['angle_error'] * (1/np.sin(frame['theta']))**2)
 	frame['slope_abs_nuobssq'] = frame['slope_abs']/frame['center_f']**2/1000 # unitless
@@ -129,13 +129,13 @@ def fitreciprocal_log(x, data, sigma=1, loglog=False):
 	return popt, pcov
 
 def modelerror(frame):
-	ex = np.sqrt(frame['red_chisq'])*frame['tau_w_error']
-	ey = np.sqrt(frame['red_chisq'])*frame['slope error (mhz/ms)']/frame['center_f']
+	ex = frame['tau_w_error']
+	ey = frame['slope error (mhz/ms)']/frame['center_f']
 	return ex, ey
 
 def modelerror_recip(frame):
-	ex = np.sqrt(frame['red_chisq'])*frame['tau_w_error']
-	ey = np.sqrt(frame['red_chisq'])*frame['recip_norm_slope_err']
+	ex = frame['tau_w_error']
+	ey = frame['recip_norm_slope_err']
 	return ex, ey
 
 def rangeerror(frame):
@@ -153,8 +153,8 @@ def rangeerror(frame):
 
 def log_error(frame):
 	""" see modelerror() """
-	sx = np.log((frame['tau_w_ms'] + np.sqrt(frame['red_chisq'])*frame['tau_w_error']) / frame['tau_w_ms'])
-	sy = np.log((frame['slope_over_nuobs'] + np.sqrt(frame['red_chisq'])*(frame['slope error (mhz/ms)'])) / frame['slope_over_nuobs'])
+	sx = np.log((frame['tau_w_ms'] + frame['tau_w_error']) / frame['tau_w_ms'])
+	sy = np.log((frame['slope_over_nuobs'] + (frame['slope error (mhz/ms)'])) / frame['slope_over_nuobs'])
 	return sx, sy
 
 def rangelog_error(frame):
@@ -226,10 +226,10 @@ def limitedDMsloperanges(fitdf, source, threshold=0):
 	raxis = 'recip_slope_over_nuobs'
 	for burst in source.index.unique():
 		burstdf = source.loc[burst] # s/source/source_lim
-		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
-		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
-		ebandwidth   = np.sqrt(burstdf['red_chisq'])*burstdf['max_sigma_error'] # ignores angle error, which should be small
-		erecipslope  = np.sqrt(burstdf['red_chisq'])*burstdf['recip_norm_slope_err']
+		eduration    = burstdf['tau_w_error']
+		eslopenuobs  = burstdf['slope error (mhz/ms)']/burstdf['center_f']
+		ebandwidth   = burstdf['max_sigma_error'] # ignores angle error, which should be small
+		erecipslope  = burstdf['recip_norm_slope_err']
 
 		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
@@ -261,8 +261,8 @@ def sloperanges(source):
 	xaxis ='tau_w_ms'
 	for burst in source.index.unique():
 		burstdf = source.loc[burst]
-		eduration   = np.sqrt(burstdf['red_chisq'])*burstdf['tau_w_error']
-		eslopenuobs = np.sqrt(burstdf['red_chisq'])*burstdf['slope error (mhz/ms)']/burstdf['center_f']
+		eduration   = burstdf['tau_w_error']
+		eslopenuobs = burstdf['slope error (mhz/ms)']/burstdf['center_f']
 
 		dmax, dmin = np.max(burstdf[yaxis] + eslopenuobs), np.min(burstdf[yaxis] - eslopenuobs)
 		tmax, tmin = np.max(burstdf[xaxis] + eduration)  , np.min(burstdf[xaxis] - eduration)
@@ -624,8 +624,8 @@ def plotSlopeVsDuration(frames=[], labels=[], title=None, logscale=True, annotat
 
 		## compute reduced chisq
 		# parameter error
-		ex = frame['tau_w_error']*np.sqrt(frame['red_chisq'])
-		ey = frame['slope error (mhz/ms)']/frame['center_f']*np.sqrt(frame['red_chisq'])
+		ex = frame['tau_w_error']
+		ey = frame['slope error (mhz/ms)']/frame['center_f']
 		# data_err = np.sqrt(ex**2 + ey**2)
 		# data_err = np.sqrt(ey**2 + (frame['slope_over_nuobs']*ex/frame['tau_w_ms'])**2)
 		data_err = np.sqrt(ey**2 + ((param/frame['tau_w_ms'])*ex/frame['tau_w_ms'])**2)

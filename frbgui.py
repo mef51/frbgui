@@ -706,17 +706,35 @@ def slope_cb(sender, data, userdata):
 			# remove DMs that are in gdata['resultsdf'] from trialDMs
 
 	progress = io.StringIO()
-	results, burstdf = driftrate.processDMRange(burstname, wfall_cr, burstDM, trialDMs, df, dt,
-												lowest_freq, p0,
-												tqdmout=None, progress_cb=progress_cb)
+	results, burstdf = driftrate.processDMRange(
+		burstname,
+		wfall_cr,
+		burstDM,
+		trialDMs,
+		df,
+		dt,
+		lowest_freq,
+		p0,
+		tqdmout=None,
+		progress_cb=progress_cb,
+	)
 
 	if gdata['multiburst']['enabled']:
 		subbursts, corrsigma, wfallsigma = getSubbursts(getsigmas=True)
 		subresults, subdf = [], pd.DataFrame()
 		for subname, subburst in subbursts.items():
 			print('processing {}'.format(subname))
-			ret, retdf = driftrate.processDMRange(subname, subburst, burstDM, trialDMs, df, dt,
-												  lowest_freq, corrsigma=corrsigma, wfallsigma=wfallsigma)
+			ret, retdf = driftrate.processDMRange(
+				subname,
+				subburst,
+				burstDM,
+				trialDMs,
+				df,
+				dt,
+				lowest_freq,
+				corrsigma=corrsigma,
+				wfallsigma=wfallsigma,
+			)
 			subresults.append(ret)
 			subdf = pd.concat([subdf, retdf])
 
@@ -771,8 +789,16 @@ def redodm_cb(sender, data, userdata):
 
 	print('redoing ', displayedname, gdata['displayedDM'], f'with {df = } {dt =} {lowest_freq = }')
 	result, burstdf = driftrate.processDMRange(
-		displayedname, wfall_cr, burstDM, [float(gdata['displayedDM'])],
-		df, dt, lowest_freq, p0=p0, corrsigma=corrsigma, wfallsigma=wfallsigma
+		displayedname,
+		wfall_cr,
+		burstDM,
+		[float(gdata["displayedDM"])],
+		df,
+		dt,
+		lowest_freq,
+		p0=p0,
+		corrsigma=corrsigma,
+		wfallsigma=wfallsigma,
 	)
 	print(f'{result = }')
 	cols, row = getMeasurementInfo(wfall_cr)

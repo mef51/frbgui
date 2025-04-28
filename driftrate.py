@@ -212,16 +212,22 @@ def fitdatagaussiannlsq(
 	bounds=(-np.inf, np.inf),
 	model=twoD_Gaussian
 ):
-	"""Fit 2d gaussian to data with the non-linear least squares algorithm implemented by `scipy.optimize.curve_fit <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_.
+	"""
+	Fit 2d gaussian to data with the non-linear least squares algorithm
+	implemented by `scipy.optimize.curve_fit <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_.
 
 	Uses the physical units as the data's coordinates.
 
 	Args:
 		data (np.ndarray): 2D array of the data to fit on
-		extents (tuple): Tuple of the initial time, final time, initial frequency, and final frequency (ti, tf, nu_i, nu_f). See :py:meth:`getExtents()`.
-		p0 (list, optional): initial guess to used, input as a list of floats corresponding to [amplitude, x0, y0, sigmax, sigmay, theta]. See :py:meth:`twoD_Gaussian`.
-		sigma (float, optional): uncertainty to use during fitting. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
-		bounds (tuple, optional): lower and upper bounds on parameters. See `Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
+		extents (tuple): Tuple of the initial time, final time, initial frequency,
+			and final frequency (ti, tf, nu_i, nu_f). See :py:meth:`getExtents()`.
+		p0 (list, optional): initial guess to used, input as a list of floats corresponding
+			to [amplitude, x0, y0, sigmax, sigmay, theta]. See :py:meth:`twoD_Gaussian`.
+		sigma (float, optional): uncertainty to use during fitting. See
+			`Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
+		bounds (tuple, optional): lower and upper bounds on parameters. See
+			`Scipy Documentation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html>`_ for more information
 		model (function, optional): function to use. ``twoD_Gaussian`` by default.
 
 	Returns:
@@ -230,9 +236,8 @@ def fitdatagaussiannlsq(
 	"""
 	# use curve-fit (non-linear leastsq)
 	# x = range(0, data.shape[1]); y = range(0, data.shape[0])
-	data = data / np.max(data) # normalize
 	x, y = getDataCoords(extents, data.shape)
-	p0 = [1,0,0,1,100,0] if p0 == [] else p0
+	p0 = [np.max(data), 0, 0, 1, 100, 0] if p0 == [] else p0
 	sigma = np.zeros(len(data.ravel())) + sigma
 	print(">> fitdatagaussianlsq", model.__name__)
 	popt, pcov = scipy.optimize.curve_fit(
@@ -241,7 +246,7 @@ def fitdatagaussiannlsq(
 		data.ravel(),
 		p0=p0,
 		sigma=sigma,
-		absolute_sigma=True,
+		absolute_sigma=False,
 		bounds=bounds
 	)
 	return popt, pcov
@@ -669,7 +674,7 @@ columns = [
 ]
 
 def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest_freq, p0=[],
-				   corrsigma=None, wfallsigma=None, tqdmout=None, progress_cb=None, lowest_time=0):
+					corrsigma=None, wfallsigma=None, tqdmout=None, progress_cb=None, lowest_time=0):
 	"""Process burst measurements over a range of DMs.
 
 	Dedisperses to each DM in ``dmrange`` and calls :py:meth:`processBurst` on the resulting waterfall. Returns a list of all measurements as well as a dataframe. Columns of the dataframe are given by ``driftrate.columns``
@@ -702,9 +707,17 @@ def processDMRange(burstname, wfall, burstdm, dmrange, fres_MHz, tres_ms, lowest
 		view = dedisperse(view, ddm, lowest_freq, fres_MHz, tres_ms)
 
 		# bounds = ([-np.inf]*5+ [0], [np.inf]*6) # angle must be positive
-		measurement = processBurst(view, fres_MHz, tres_ms, lowest_freq, verbose=False, p0=p0,
-									corrsigma=corrsigma, wfallsigma=wfallsigma,
-									lowest_time=lowest_time)
+		measurement = processBurst(
+			view,
+			fres_MHz,
+			tres_ms,
+			lowest_freq,
+			verbose=False,
+			p0=p0,
+			corrsigma=corrsigma,
+			wfallsigma=wfallsigma,
+			lowest_time=lowest_time,
+		)
 		slope, slope_err, popt, perr, theta, red_chisq, center_f, center_f_err, fitmap = measurement
 		datarow = [burstname] + [trialDM, center_f, center_f_err, slope, slope_err, theta, red_chisq] + popt + perr + [fres_MHz, tres_ms/1000]
 		results.append(datarow)
