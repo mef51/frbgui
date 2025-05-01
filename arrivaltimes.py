@@ -14,6 +14,12 @@ from driftrate import scilabel, subburst_suffixes
 
 # Based on https://github.com/mef51/subdriftlaw/blob/master/ArrivalTimes.ipynb
 
+"""
+When fitting rows, noise is sampled over a fraction of the data, from the start.
+i.e. `data_sigma = np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])`
+"""
+NOISE_WIDTH_FACTOR = 5
+
 def zero_line_model(nu, dtdnu):
 	return dtdnu * nu
 
@@ -42,18 +48,21 @@ def gaussmix_model(x, *p):
 		model += gauss_model(x, p[0*n+i], p[1*n+i], p[2*n+i])
 	return model
 
-def fitgauss(data, duration):
+def fitgauss(data, duration, redchisq=1):
+	"""
+	Fits a gaussian fit to the the data (using `gauss_model`)
+	Estimates the uncertainty in data as `np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])`
+	"""
 	# use curve-fit (non-linear leastsq)
 	if len(data) == 0:
-		popt = [np.nan, np.nan, np.nan]
-		pcov = [np.nan, np.nan, np.nan]
-		return popt, pcov
-	if np.max(data) != 0:
-		data = data / np.max(data) # normalize
+		popt = [0,0,0]
+		pcov = [0,0,0]
+		return popt, pcov, 0
 	x = np.linspace(0, duration, num=len(data))
 	xo = sum(x*data)/sum(data)
 	try:
-		popt, pcov = scipy.optimize.curve_fit(
+		data_sigma = [np.sqrt(redchisq)*np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])]*len(data)
+		popt, pcov, infodict, msg, ier = scipy.optimize.curve_fit(
 			gauss_model,
 			x,
 			data,
@@ -62,12 +71,23 @@ def fitgauss(data, duration):
 				xo,
 				np.sqrt(abs(sum(data*(x-xo)**2)/sum(data))) # sigma
 			],
+			sigma=data_sigma,
+			full_output=True
 		)
+		# print(f"{np.linalg.cond(pcov) = }")
+		# print(f"{infodict = }")
+		# print(f"{msg = }")
+		# print(f"{ier = }")
+
+		residuals = (data - gauss_model(x, *popt))/data_sigma
+		chisq = np.sum((residuals) ** 2)
+		redchisq = chisq / (len(data) - len(popt))
 	except RuntimeError as e:
-		popt = [np.nan, np.nan, np.nan]
-		pcov = [np.nan, np.nan, np.nan]
+		popt = [0,0,0]
+		pcov = [0,0,0]
+		redchisq = 0
 	finally:
-		return popt, pcov
+		return popt, pcov, redchisq
 
 def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False, tol=0.01):
 	n = len(xos) # Number of components
@@ -88,31 +108,123 @@ def fitgaussmix(data, duration, xos, sigmas=None, fix_xos=False, tol=0.01):
 		)
 
 	try:
+		data_sigma = [np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])]*len(data)
 		popt, pcov = scipy.optimize.curve_fit(
 			gaussmix_model,
 			x,
 			data,
 			p0=guess,
-			bounds=bounds
+			bounds=bounds,
+			sigma=data_sigma,
 		)
+		residuals = (data - np.max(data)*gaussmix_model(x, *popt))/data_sigma
+		chisq = np.sum((residuals) ** 2)
+		redchisq = chisq / (len(data)- len(popt))
 	except RuntimeError as e:
 		popt = [0]*3*n
 		pcov = [0]*3*n
+		redchisq = 0
 	finally:
-		return popt, pcov
+		return popt, pcov, redchisq
 
-def fitrows(wfall, dt, freqs, plot=False):
-	fitdata = np.zeros((wfall.shape[0], 10))
+def fitrows(wfall, dt, freqs, plot=False, bname=''):
+	if type(plot) == list:
+		plot = [int(p) for p in plot]
+	fitdata = np.zeros((wfall.shape[0], 11))
 	for i, row in enumerate(wfall):
-		popt, pcov = fitgauss(row, wfall.shape[1]*dt)
-		# print(f'row {i}: {popt = } {np.mean(row) = } {freqs[i] = }')
+		popt, pcov, redchisq = fitgauss(row, wfall.shape[1]*dt)
 		perr = np.sqrt(np.diag(pcov))
+		# print(f"{freqs[i]:.2f}: {popt = } {perr = } {redchisq = } {np.max(row) = }")
+
+		if logdebug and not np.isnan(redchisq) and redchisq > 0:
+			# sanity check: is the reduced chisq=1 after rescaling the data uncertainties?
+			_, _, post_redchisq = fitgauss(row, wfall.shape[1]*dt, redchisq)
+			printd(f"{freqs[i]:.2f}: {redchisq = :.2f}, post fit reduced χ^2 = {post_redchisq:.2f}")
+
 		if len(perr.shape) == 2: perr = np.diag(perr) # handles when pcov is nans
+
 		sigma = abs(popt[2])
 		tstart = (popt[1]-np.sqrt(2)*sigma)
 		tstart_err = np.sqrt(perr[1]**2 + 2*perr[2]**2)
+		# print(f"{freqs[i] = }, {tstart = }, {tstart_err = }")
+		# print(f"{row_sigma = :.4f}, {redchisq = :.3f}, {chisq = :.3f}")
+
 		tend   = (popt[1]+np.sqrt(2)*sigma)
-		fitdata[i,:] = [freqs[i], tstart, tend, popt[0], popt[1], tstart_err, sigma, *perr]
+		fitdata[i,:] = [
+			freqs[i],
+			tstart,
+			tend,
+			popt[0],
+			popt[1],
+			tstart_err,
+			sigma,
+			redchisq,
+			*perr # (3 values)
+		]
+		# print(fitdata.shape)
+		# exit()
+
+		# Diagnostic plot for row fit
+		if (plot and type(plot) == bool) or ((type(plot) == list) and int(freqs[i]) in plot):
+			xs = np.linspace(0, wfall.shape[1]*dt, num=len(row))
+			data_sigma = [np.std(row[0:len(row)//NOISE_WIDTH_FACTOR])]*len(row)
+			residuals = (row - gaussmix_model(xs, *popt))/data_sigma
+			fig, axs = plt.subplots(2,1, figsize=(10,7), height_ratios=[3,1])
+			axs[0].plot(xs, row)
+			axs[0].plot(
+				xs,
+				gauss_model(xs, *popt),
+				label='$a, t_0, σ$ = '+', '.join([f"{float(p):.3f}" for p in popt])
+			)
+			axs[0].axvline(
+				x=tstart,
+				c='k',
+				linestyle='-.',
+				label=f'$t_\\text{{start}}$ = {scilabel(tstart, tstart_err)}'
+			)
+			axs[0].axvline(
+					x=xs[len(row)//NOISE_WIDTH_FACTOR],
+					label=f'noise sample boundary ($\\sigma_{{\\text{{data}}}} = $ {data_sigma[0]:.2f})',
+					c='r', linestyle='--'
+				)
+			axs[0].axvline(x=min(xs), alpha=0, label=f"χ$^2_{{\\text{{red}}}}=${redchisq:.3f}")
+			axs[0].set_xlim(min(xs), max(xs))
+			axs[0].set_title(f"{bname} freq: {freqs[i]:.2f} MHz")
+			axs[0].legend(frameon=False)
+
+			kstest = scipy.stats.kstest(residuals, scipy.stats.norm.cdf)
+			if not np.isnan(tstart_err) and not np.isnan(residuals.min()):
+				_, bins, _ = axs[1].hist(
+					np.random.standard_normal(len(residuals)),
+					bins='auto',
+					label='Sampled $N(0,1)$',
+					histtype='step',
+					density=True,
+					linewidth=2,
+					range=(residuals.min(), residuals.max())
+				)
+				nx = np.linspace(*axs[1].get_xlim())
+				axs[1].plot(
+					nx,
+					gauss_model(nx, 1/np.sqrt(2*np.pi), 0, 1),
+					'k-',
+					label='$N(0,1)$'
+				)
+				axs[1].hist(
+					residuals,
+					bins=bins,
+					label='residuals',
+					density=True
+					# histtype='step'
+				)
+				axs[1].plot(0, 'w.', alpha=0,
+					label=f"K-S test $p = {kstest.pvalue:.2f}$\nstatistic $= {kstest.statistic:.2f}$"
+				)
+				axs[1].legend(frameon=False, fontsize='small')
+			axs[1].set_title("Distribution of normalized residuals")
+			plt.tight_layout()
+			plt.show()
+			plt.close()
 
 	return pd.DataFrame(data=fitdata, columns=[
 		'freqs',
@@ -122,6 +234,7 @@ def fitrows(wfall, dt, freqs, plot=False):
 		'xo',
 		'tstart_err',
 		'sigma',
+		'red_chisq',
 		'amp_err',
 		'xo_err',
 		'sigma_err'
@@ -185,6 +298,9 @@ results_columns = [
 	'bandwidth_err',
 	'dtdnu (ms/MHz)',
 	'dtdnu_err',
+	'redchisq_t',
+	'redchisq_nu',
+	'redchisq_dtdnu',
 	'tb (ms)',
 	'tb_err',
 	'num_arrtimes'
@@ -213,6 +329,7 @@ def measureburst(
 	show=True,
 	figsize=(10, 8), # (10, 9) for paper, (10,8) for screen
 	show_components=False,
+	show_arrtime=False,
 	cmap_norm='linear',
 	cmap='viridis',
 	save=True,
@@ -226,6 +343,7 @@ def measureburst(
 	hide_legend=False,
 	legendloc=1,
 	label_components=False,
+	pslopeidx=-1,
 	tpoint='tstart'
 ):
 	""" Measure spectro-temporal properties of a burst, and output a figure
@@ -265,8 +383,10 @@ def measureburst(
 			Pass ``(False, False)`` to skip both rounds of background subtraction.
 		bw_filter (str, optional): The type of spectral/bandwidth filter to apply on arrival times. Default is ``'data_cutoff'``. Options are
 
-			1. ``'data_cutoff'``: filter out arrival times in channels where the 1σ on-pulse mean amplitude is < 3 (see ``snr_cutoff``) times the noise amplitude
-			2. ``'model_cutoff'``: filter out arrival times in channels where the 1d spectral model amplitude is < 3 (see ``snr_cutoff``) times the noise amplitude
+			1. ``'data_cutoff'``: filter out arrival times in channels where the 1σ on-pulse mean amplitude
+			is < 3 (see ``snr_cutoff``) times the noise standard deviation
+			2. ``'model_cutoff'``: filter out arrival times in channels where the 1d spectral model amplitude
+			is < 3 (see ``snr_cutoff``) times the noise standard deviation
 			3. ``'model_width'``: filter out arrival times that lie beyond a multiple of the 1d spectral model width (σ). See ``bw_width_factor``.
 		bw_width_factor (int, optional): When using ``bw_filter=model_width``, 3σ of the burst bandwidth is applied as a spectral filter.
 			For bursts with lots of frequency structure this may be inadequate,
@@ -286,7 +406,7 @@ def measureburst(
 			``submask=([],[],[],[22])``.
 			This is also a good way to filter out misbehaving components in an otherwise well-measured waterfall
 			and is useful for complicated bursts.
-		bandmask_thres (float or list[float], optional): The intensity threshold in the integrated spectrumabove which
+		bandmask_thres (float or list[float], optional): The intensity threshold in the integrated spectrum above which
 			points should be ignored when performing burst fits. This is primarily useful for masking scintillation peaks in order to
 			obtain more accurate burst bandwidth measurements. The appropriate level can be inferred from the output plot, or, if there are
 			multiple components, using the plot output when ``show_components=True``, since the spectrum normally shown is integrated
@@ -300,11 +420,16 @@ def measureburst(
 		show (bool, optional): if True show interactive figure window for each file
 		figsize (tuple, optional): figsize passed to matplotlib used for main output figure.
 		show_components (bool, optional): if True show figure window for each sub-burst
-		cmap_norm (str, optional) The colormap normalization ``norm`` parameter passed to matplotlib's imshow command
+		show_arrtime (bool or List[int], optional): if True, show a diagnostic plot with statistical
+			and fit information for each frequency channel. If instead a list of frequency channels are provided,
+			then only those frequency channels will be shown.
+			Frequency channels listed need only be to the nearest integer.
+			See also ``return_arrivaltimes`` option.
+		cmap_norm (str, optional): The colormap normalization ``norm`` parameter passed to matplotlib's imshow command
 			when plotting the waterfall. Default is 'linear', other options are 'log', 'symlog', 'logit',
 			or matplotlib's Normalize class.
 		cmap (str, optional): matplotlib colormap to use for waterfall
-		return_arrivaltimes (bool, optional): If True, will a dataframe of the arrival times per channel
+		return_arrivaltimes (bool, optional): If True, will return a dataframe of the arrival times per channel
 		return_fig (bool, optional): if True, return the matplotlib figure. The figure will not be closed.
 		save (bool, optional): if True save a figure displaying the measurements.
 		loadonly (bool, optional): if True will perform loading steps such as masking, dedispersing,
@@ -318,6 +443,8 @@ def measureburst(
 		hide_legend (bool, optional): Hides the legend in the output if True.
 		legendloc (int or str, optional): Set the location of the legend. Passed to matplotlib's loc argument when the legend is called.
 		label_components (bool, optional): If True, label components filters in the time series plot. Useful for complicated waterfalls.
+		pslopeidx (int, optional): Index of component to show in the time vs. frequency (i.e. slope) plot.
+			Default is last component (-1).
 		tpoint (str, optional): One of 'tstart' (default), 'tend', or 'xo'.
 			Use to measure the slope based on the central peak in each channel, or based on the ending time in each channel.
 
@@ -346,6 +473,9 @@ def measureburst(
 				'bandwidth_err',
 				'dtdnu (ms/MHz)',
 				'dtdnu_err',
+				'redchisq_t',     # reduced chi-squared of time series fit
+				'redchisq_nu',    # reduced chi-squared of component-wise spectrum fit
+				'redchisq_dtdnu', # reduced chi-squared of component-wise slope fit
 				'tb (ms)', # t_b
 				'tb_err'
 
@@ -426,7 +556,7 @@ def measureburst(
 
 	tpoint = 'tstart' # 'tend', 'xo'
 	pktime = np.nanargmax(tseries)*res_time_ms
-	t_popt, _ = fitgauss(tseries, duration) # whether one or many components, for ref in plot
+	t_popt, _, _ = fitgauss(tseries, duration) # whether one or many components, for ref in plot
 	print(f"Info: {bname}: {data['wfall'].shape = }, {wfall.shape = }.")
 	print(f"Info: Using {bw_filter = } and {snr_cutoff = }")
 
@@ -454,10 +584,13 @@ def measureburst(
 	if load_solutions:
 		solsdata = np.load(load_solutions, allow_pickle=True)
 		tmix_popt, tmix_perr = solsdata['tmix_popt'], solsdata['tmix_perr']
-		subbandpopts, subbandperrs = list(solsdata['subbandpopts']), list(solsdata['subbandperrs'])
+		tmix_redchisq = solsdata['tmix_redchisq']
+		subbandpopts = list(solsdata['subbandpopts'])
+		subbandperrs = list(solsdata['subbandperrs'])
+		subbandredchisqs = list(solsdata['subbandredchisqs'])
 		subbandmodels = []
 	else:
-		tmix_popt, tmix_pcov = fitgaussmix(
+		tmix_popt, tmix_pcov, tmix_redchisq = fitgaussmix(
 			tseries,
 			duration,
 			xos=xos,
@@ -466,7 +599,7 @@ def measureburst(
 			tol=tolms
 		)
 		tmix_perr = np.sqrt(np.diag(tmix_pcov))
-		subbandpopts, subbandmodels, subbandperrs = [], [], []
+		subbandpopts, subbandmodels, subbandperrs, subbandredchisqs = [], [], [], []
 
 	if len(tmix_perr.shape) == 2: tmix_perr = np.diag(tmix_perr) # handles when pcov is nans
 	tmix_amps       = tmix_popt[:n_bursts]
@@ -602,13 +735,15 @@ def measureburst(
 		bandmask_thres,
 		noisesmpls
 	):
+		rowname = bname if len(xos) == 1 else f'{bname}_{subburst_suffixes[xos.index(xosi)]}'
 		for m in submask:
 			if type(m) == range:
 				m = np.array(m)
 			subfall[m//downfactors[0]] = 0
 
 		sigma = abs(sigma)
-		subdf = fitrows(subfall, res_time_ms, freqs) # Fit a 1d gaussian in each row of the waterfall
+		# Fit a 1d gaussian in each row of the waterfall
+		subdf = fitrows(subfall, res_time_ms, freqs, plot=show_arrtime, bname=rowname)
 		if len(cuts) == 0:
 			subpktime = 4*sigma # since we made a 4 sigma window
 		else:
@@ -621,9 +756,13 @@ def measureburst(
 		# Fit 1d gauss to burst spectrum
 		fo = sum(freqs*subband)/sum(subband) # this is an estimate of center_f
 		if load_solutions:
-			subband_popt, subband_perr = subbandpopts[0], subbandperrs[0]
+			subband_popt = subbandpopts[0]
+			subband_perr = subbandperrs[0]
+			subband_redchisq = subbandredchisqs[0]
+			# ingest lists
 			subbandpopts = subbandpopts[1:]
 			subbandperrs = subbandperrs[1:]
+			subbandredchisqs = subbandredchisqs[1:]
 		else:
 			if bandmask_thresi: # remove points above the threshold for fitting
 				subband_fit = subband[subband < bandmask_thresi]
@@ -631,31 +770,64 @@ def measureburst(
 			else:
 				subband_fit, freqs_fit = subband, freqs
 			try:
+				subbandsigma = np.std(subband[:len(subband)//NOISE_WIDTH_FACTOR]) # not always a great estimate
+				# print(f"{subbandsigma = :.3f}")
 				subband_popt, subband_pcov = scipy.optimize.curve_fit(
 					gauss_model,
 					freqs_fit,
-					subband_fit/np.max(subband_fit),
+					subband_fit,
 					p0=[
 						1,
 						fo,
 						np.sqrt(abs(sum(subband_fit*(freqs_fit-fo)**2)/sum(subband_fit))) # sigma
 					],
+					sigma=[subbandsigma]*len(subband_fit)
 				)
-				subband_popt[0] *= np.max(subband_fit)
+
+				residuals = (subband_fit - gauss_model(freqs_fit, *subband_popt))/subbandsigma
+				chisq = np.sum((residuals) ** 2)
+				subband_redchisq = chisq / (len(subband_fit)- len(subband_popt))
 				subband_perr = np.sqrt(np.diag(subband_pcov))
 
 				## Diagnostic plot for spectrum fit:
 				if False:
-					plt.plot(freqs, subband, 'rX', ms=4)
-					plt.plot(freqs_fit, subband_fit, 'k.')
+					# print(f"{subbandsigma = } {subband_redchisq = }")
+					fig, axs = plt.subplots(2,1, figsize=(10,7), height_ratios=[3,1])
 					if bandmask_thresi:
-						plt.axhline(y=bandmask_thresi, c='r', ls='--')
-					plt.plot(freqs,gauss_model(freqs, *subband_popt))
+						axs[0].plot(freqs, subband, 'rX', ms=4)
+						axs[0].axhline(y=bandmask_thresi, c='r', ls='--')
+					axs[0].plot(freqs_fit, subband_fit)
+					axs[0].plot(
+						freqs,
+						gauss_model(freqs, *subband_popt),
+						label=(
+							f'$\sigma_{{\\nu}} =$ {scilabel(subband_popt[2], subband_perr[2])} MHz'
+							f"\n$\\chi^2_{{\\text{{red}}}} =${subband_redchisq:.2f}"
+						)
+					)
+					axs[0].legend(frameon=False)
+					_, bins, _ = axs[1].hist(
+						np.random.standard_normal(len(residuals)),
+						bins='auto',
+						label='Sampled $N(0,1)$',
+						histtype='step',
+						density=True,
+						linewidth=2,
+						range=(residuals.min(), residuals.max())
+					)
+					axs[1].hist(
+						residuals,
+						bins=bins,
+						label='residuals',
+						density=True
+						# histtype='step'
+					)
 					plt.show();plt.close()
 
 			except (RuntimeError,ValueError) as e:
 				print(f"Warning: Spectrum fit failed.", e)
 				subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
+				subband_redchisq = 0
 
 		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
 		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f and center_f_err
@@ -694,25 +866,32 @@ def measureburst(
 		]
 		printd(f"Debug: post-filters {len(subdf) = }")
 
-		# Measure dt/dnu
+		## Measure dt/dnu
 		if len(subdf) > 1: # only fit a line if more than 1 point
+			tdata = subdf[tpoint] - subpktime
 			popt, pcov = scipy.optimize.curve_fit(
 				line_model,
 				subdf['freqs'],
-				subdf[tpoint] - subpktime,
+				tdata,
 				sigma=subdf[f'{tpoint}_err'],
-				absolute_sigma=True,
 			)
 			perr = np.sqrt(np.diag(pcov))
+
+			residuals = (tdata - line_model(subdf['freqs'], *popt))/subdf[f'{tpoint}_err']
+			chisq = np.sum((residuals) ** 2)
+			dtdnu_redchisq = chisq / (len(tdata)- len(popt))
+
 			dtdnu, dtdnu_err = popt[0], perr[0]
 			t_b, tb_err = popt[1], perr[1]
 
 			# print(f"{dtdnu = :.5e} +/- {dtdnu_err:.5e} ms/MHz")
+
+			print(f"{dtdnu = :.5e} +/- {dtdnu_err:.5e} ms/MHz {dtdnu_redchisq = :.1f}")
 			# print(f"{dtdnu2 = :.5e} +/- {dtdnu_err2:.5e} ms/MHz")
 			# print(f"{nu0fit = } +/- {nu0fit_err = }")
 			# print(f"{t_b = :.5f} +/- {tb_err:.5f} ms")
 		else: # no measurement
-			dtdnu, dtdnu_err = 0, 0
+			dtdnu, dtdnu_err, dtdnu_redchisq = 0, 0, 0
 			t_b, tb_err = 0, 0
 
 		# Sub-burst plot
@@ -775,32 +954,35 @@ def measureburst(
 
 		subdf['color'] = next(colors) # assign color to points
 
-		dtdnus.append((dtdnu, dtdnu_err))
+		dtdnus.append((dtdnu, dtdnu_err, dtdnu_redchisq))
 		intercepts.append((t_b, tb_err))
 		subbandpopts.append(subband_popt)
 		subbandperrs.append(subband_perr)
+		subbandredchisqs.append(subband_redchisq)
 		subdfs.append(subdf)
 		# print(f"{dtdnu = } +/- {dtdnu_err = }")
 		# print(f"{rowname} number of arrival times: {len(subdf) = }")
 		print(f"{bwidth = :.3f} +/- {bwidth_err:.3f} MHz")
 
-		rowname = bname if len(xos) == 1 else f'{bname}_{subburst_suffixes[xos.index(xosi)]}'
 		results.append([ # see `results_columns`
-			rowname,	# 'name',
-			targetDM,	# 'DM',
-			xosi,		# 't0 (ms)',
-			xosi_err,	# 't0_err'
-			pkfreq,		# 'center_f (MHz)',
-			pkfreq_err,	# 'center_f_err',
-			sigma,		# 'duration (ms)',
-			sigma_err,	# 'duration_err',
-			bwidth,		# 'bandwidth (MHz)',
-			bwidth_err,	# 'bandwidth_err',
-			dtdnu,		# 'dtdnu (ms/MHz)',
-			dtdnu_err,	# 'dtdnu_err',
-			t_b,		# 'tb (ms)',
-			tb_err,		# 'tb_err'
-			len(subdf)  # 'num_arrtimes'
+			rowname,	      # 'name',
+			targetDM,	      # 'DM',
+			xosi,		      # 't0 (ms)',
+			xosi_err,	      # 't0_err'
+			pkfreq,		      # 'center_f (MHz)',
+			pkfreq_err,	      # 'center_f_err',
+			sigma,		      # 'duration (ms)',
+			sigma_err,	      # 'duration_err',
+			bwidth,		      # 'bandwidth (MHz)',
+			bwidth_err,	      # 'bandwidth_err',
+			dtdnu,		      # 'dtdnu (ms/MHz)',
+			dtdnu_err,	      # 'dtdnu_err',
+			tmix_redchisq,    # 'redchisq_t',
+			subband_redchisq, # 'redchisq_nu',
+			dtdnu_redchisq ,  # 'redchisq_dtdnu',
+			t_b,		      # 'tb (ms)',
+			tb_err,		      # 'tb_err'
+			len(subdf)        # 'num_arrtimes'
 		])
 
 	subdf = pd.concat(subdfs)
@@ -813,8 +995,10 @@ def measureburst(
 			solname,
 			tmix_popt=tmix_popt,
 			tmix_perr=tmix_perr,
+			tmix_redchisq=tmix_redchisq,
 			subbandpopts=subbandpopts,
-			subbandperrs=subbandperrs
+			subbandperrs=subbandperrs,
+			subbandredchisqs=subbandredchisqs
 		)
 		print(f'Info: Saved {solname} solutions file')
 
@@ -875,7 +1059,7 @@ def measureburst(
 	ax_wfall.set_ylabel("Frequency (MHz)")
 
 	# Component lines
-	for (dtdnu, dtdnu_err), (tb, tb_err), xoi in zip(dtdnus, intercepts, xos):
+	for (dtdnu, dtdnu_err, _), (tb, tb_err), xoi in zip(dtdnus, intercepts, xos):
 		if dtdnu != 0:
 			ax_wfall.plot(
 				times_ms-pktime,
@@ -913,7 +1097,10 @@ def measureburst(
 		)
 		odrjob.set_job(fit_type=0)
 		odrfit = odrjob.run()
-		drift, drift_err = odrfit.beta[0], np.sqrt(np.diag(odrfit.cov_beta))[0]
+		drift_redchisq = odrfit.res_var # https://stackoverflow.com/a/21406281/3133399
+		# drift, drift_err = odrfit.beta[0], odrfit.sd_beta[0] # sd_beta is scaled by reduced chisq
+		drift, drift_err = odrfit.beta[0], np.sqrt(np.diag(odrfit.cov_beta))[0] # if you don't want to scale by reduced chisq
+
 		ax_wfall.plot(
 			times_ms-pktime,
 			(1/drift)*(times_ms-pktime)+(-odrfit.beta[1]/drift),
@@ -985,8 +1172,12 @@ def measureburst(
 			*tmix_popt
 		),
 		'k--',
-		alpha=0.8
+		alpha=0.8,
+		label=( # because of the loop above, this is implicitly for the last component
+			f"$\\sigma_t =$ {scilabel(sigma, sigma_err)} ms, $\\chi^2_{{\\text{{red}}}} =${tmix_redchisq:.2f}"
+		),
 	)
+	ax_tseries.legend(frameon=False, fontsize=12, handlelength=0)
 
 	### Summed Spectrum (summed over burst widths). Total and individual
 	downband = 1
@@ -997,15 +1188,20 @@ def measureburst(
 		bandpass_down,
 		np.linspace(*extent[2:], num=len(bandpass_down)+1),
 		orientation='horizontal',
+		label=( # because of the loop above, this is implicitly for the last component
+			# f"$\\sigma_{{\\nu}} =$ {scilabel(bwidth, bwidth_err)} MHz"
+			f"\n$\\chi^2_{{\\text{{red}}}} =${subband_redchisq:.2f}"
+		),
 		# lw=2
 	)
+	axs['S'].legend(frameon=False, fontsize=12, handlelength=0)
 	for subbandmodel in subbandmodels:
 		axs['S'].plot(
 			subbandmodel,
 			freqs,
 			'k--',
 			alpha=0.5,
-			zorder=-1
+			zorder=-1,
 		)
 
 	for bandmask_thresi, subband in zip(bandmask_thres, subbands):
@@ -1070,29 +1266,35 @@ def measureburst(
 	plt.setp(ax_tseries.get_xticklabels(), visible=False)
 	plt.setp(axs['S'].get_yticklabels(), visible=False) # For paper
 
-	### Slope measurement plot. Plot last component
-	plotdf = subdfs[-1]
+	### Slope measurement plot.
+	pidx = pslopeidx # Plot last component by default
+	psfx = subburst_suffixes[xos.index(xos[pidx])]
+	pdtdnu, pdtdnu_err, pdtdnu_redchisq = dtdnus[pidx]
+	pt_b, _ = intercepts[pidx]
+	plotdf = subdfs[pidx]
 	ax_slope = axs['E']
-	ax_slope.scatter(plotdf['freqs'], plotdf[tpoint]-xos[-1], c='k', s=20)
+	ax_slope.scatter(plotdf['freqs'], plotdf[tpoint]-xos[pidx], c='k', s=20)
 	ax_slope.errorbar(
 		plotdf['freqs'],
-		plotdf[tpoint]-xos[-1],
-		yerr=plotdf[f'{tpoint}_err'],
+		plotdf[tpoint]-xos[pidx],
+		yerr=np.sqrt(pdtdnu_redchisq)*plotdf[f'{tpoint}_err'],
 		xerr=None,
 		fmt='none',
 		zorder=-1,
 		color='#888888'
 	)
-	ax_slope.plot(freqs, dtdnu*freqs+t_b, 'k--')
+	ax_slope.plot(freqs, pdtdnu*freqs+pt_b, 'k--')
 	ax_slope.annotate(
-		f"$dt/d\\nu =$ {scilabel(dtdnu, dtdnu_err)} ms/MHz \n$\\sigma_t =$ {scilabel(sigma, sigma_err)} ms",
-		xy=(0.99, 0.15),
+		f"{psfx}. $dt/d\\nu =$ {scilabel(pdtdnu, pdtdnu_err)} ms/MHz"
+		f"\n$\\chi^2_{{\\text{{red}}}} =$ {pdtdnu_redchisq:.2f}",
+		# f"\n$\\sigma_t =$ {scilabel(sigma, sigma_err)} ms",
+		xy=(0.99, 0.475),
 		ha='right',
 		xycoords='axes fraction',
 		color='k',
 		weight='black',
-		size=11,
-		bbox={"boxstyle":"round", 'alpha': 0.3}
+		size=12,
+		bbox={"boxstyle":"round", 'alpha': 0.}
 	)
 	ax_slope.set_xlabel("Frequency (MHz)")
 	ax_slope.set_ylabel("Time (ms)")
@@ -1183,6 +1385,7 @@ drift_columns = [
 	'duration_err',
 	'drift (ms/MHz)',
 	'drift_err',
+	'redchisq_drift',
 	'source'
 ]
 def measuredrifts(
@@ -1244,8 +1447,10 @@ def measuredrifts(
 		odrjob.set_job(fit_type=0)
 		odrfit = odrjob.run()
 		# odrfit.pprint()
-
+		drift_redchisq = odrfit.res_var # https://stackoverflow.com/a/21406281/3133399
+		# drift, drift_err = odrfit.beta[0], odrfit.sd_beta[0] # sd_beta is scaled by reduced chisq
 		drift, drift_err = odrfit.beta[0], np.sqrt(np.diag(odrfit.cov_beta))[0]
+
 		rows.append([
 			burst,
 			targetdf['DM'][0],
@@ -1255,6 +1460,7 @@ def measuredrifts(
 			duration_err,
 			drift,
 			drift_err,
+			drift_redchisq,
 			source
 		])
 
@@ -1323,7 +1529,8 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 	pktime = np.nanargmax(tseries)*res_time_ms
 	extent, corrext = driftrate.getExtents(wfall, res_freq, res_time_ms, freqs_bin0)
 
-	fig, axs = plt.subplots(1,2, figsize=(10,5))
+	plt.close()
+	fig, axs = plt.subplots(1,2, figsize=(12,5.5))
 	axs[0].imshow(
 		wfall,
 		aspect='auto',
@@ -1386,7 +1593,6 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 	axs[0].set_xlim(extent[0], extent[1])
 	axs[0].set_ylim(extent[2], extent[3])
 
-
 	## ACF measurement (-3470 mhz/ms in frbgui)
 	p0s = [
 		[1, pktime, freqs[len(freqs)//2], p0tw, p0bw, 0],  # amp, xo, yo, sigma_x, sigma_y, theta
@@ -1405,7 +1611,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		_, # center_f_err,
 		fitmap,
 	) = driftrate.processBurst(
-		wfall,
+		wfall/np.max(wfall),
 		res_freq,
 		res_time_ms,
 		freqs_bin0,
@@ -1458,7 +1664,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		_, # center_f_err,
 		fitmap2,
 	) = driftrate.processBurst(
-		wfall,
+		wfall/np.max(wfall),
 		res_freq,
 		res_time_ms,
 		freqs_bin0,
@@ -1483,20 +1689,31 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		)
 	axs[0].legend()
 
-	## Gaussian models measurements
+	## Gaussian models measurements direct to waterfall
 	models = [driftrate.twoD_Gaussian, driftrate.gaussian_dt, driftrate.gaussian_dnu] # preserve order
-	sigma = np.std( wfall[:, 0:50] )
+	sigma = np.std( wfall[:, 0:50])
 	for model, p0 in zip(models, p0s):
-		popt, pcov = driftrate.fitdatagaussiannlsq(
-			wfall,
-			extent,
-			p0=p0,
-			sigma=sigma,
-			model=model
-		)
-		perr = np.sqrt(np.diag(pcov))
+		try:
+			popt, pcov = driftrate.fitdatagaussiannlsq(
+				wfall,
+				extent,
+				p0=p0,
+				sigma=sigma,
+				model=model
+			)
+		except RuntimeError as e:
+			print(f"Error: {e}")
+			popt = [0]*len(p0)
+			pcov = np.diag([0]*len(p0))
+
 		# print(popt)
-		print(f"{model.__name__}:")
+		r = wfall - driftrate.makeDataFitmap(popt, wfall, extent, model=model)
+		chisq = np.sum((r / sigma) ** 2)
+		redchisq = chisq / (wfall.shape[0]*wfall.shape[1] - len(popt))
+
+		perr = np.sqrt(np.diag(pcov))
+
+		print(f"{model.__name__}: {sigma = } {redchisq = }")
 
 		if model == driftrate.twoD_Gaussian: # amp, xo, yo, sigma_x, sigma_y, theta
 			units = ['']*len(p0)
@@ -1522,7 +1739,10 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 			units = ['', 'ms', 'MHz/ms', 'MHz', 'ms', 'MHz']
 			lbls = ['$A_{dnu}$', '$t_0$', '$d_\\nu$', '$\\nu_0$', '$w_t$', '$w_\\nu$']
 
-			gnu_dt = popt[2] / (popt[2]**2 + popt[5]**2/popt[4]**2)
+			if popt[0] > 0:
+				gnu_dt = popt[2] / (popt[2]**2 + popt[5]**2/popt[4]**2)
+			else:
+				gnu_dt = 0
 
 			print(f"\t {gnu_dt = :.4e} ms/MHz")
 			precalc_results += [gnu_dt, -1] # uncertainty needs to be derived from eq. A4 in Jahns+2023
@@ -1544,36 +1764,33 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 			model=model
 		)
 
+		contours, cr = [], 'w'
 		if popt[0] > 0:
-			c = axs[0].contour(
-				poptmap,
-				[popt[0]/4, popt[0]*0.9],
-				colors='w',
-				alpha=0.33,
-				extent=extent,
-			)
-			c.collections[0].set_label(legend_lbl)
-		else: # Bad fit, plot in red
-			c = axs[0].contour(
-				poptmap,
-				[-popt[0]/4, -popt[0]*0.9],
-				colors='r',
-				alpha=0.33,
-				extent=extent,
-			)
+			contours, cr = [popt[0]/4, popt[0]*0.9], 'w'
+		elif popt[0] < 0:
+			contours, cr = [-popt[0]/4, -popt[0]*0.9], 'r'
+		c = axs[0].contour(
+			poptmap,
+			contours,
+			colors=cr,
+			alpha=0.33,
+			extent=extent,
+		)
+		if contours != []:
 			c.collections[0].set_label(legend_lbl)
 		bname = filename.split('/')[-1].split('.')[0]
 		axs[0].set_title(bname)
 
 	# axs[0].legend(handlelength=0)
 	try:
-		axs[0].legend(handlelength=0)
+		axs[0].legend(handlelength=0, fontsize='small', loc=4)
 	except IndexError as e:
 		print("error: weird legend bug")
-	axs[1].legend(ncols=1, handlelength=0)
+	axs[1].legend(ncols=1, handlelength=0, fontsize='small', loc=4)
 
 	results_allmethods = list(arrdf.reset_index().iloc[0]) + precalc_results + model_results
 
+	plt.tight_layout()
 	if show: plt.show()
 	plt.savefig(f"measurements/collected/{bname}")
 	plt.close()
