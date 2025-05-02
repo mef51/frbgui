@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
-import your
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle, Ellipse
 import scipy, glob
@@ -50,8 +49,9 @@ def gaussmix_model(x, *p):
 
 def fitgauss(data, duration, redchisq=1):
 	"""
-	Fits a gaussian fit to the the data (using `gauss_model`)
-	Estimates the uncertainty in data as `np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])`
+	Fits a gaussian fit to the the data (using :func:`gauss_model <arrivaltimes.gauss_model>`)
+
+	Estimates the uncertainty in data as ``np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])``
 	"""
 	# use curve-fit (non-linear leastsq)
 	if len(data) == 0:

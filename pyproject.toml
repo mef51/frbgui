@@ -1,0 +1,47 @@
+[project]
+name = "frbgui"
+version = "0.11.0"
+description = "GUI and utilities for processing Fast Radio Burst waterfalls"
+readme = "README.md"
+
+authors = [
+  { name = "Mohammed Chamma", email = "mchamma@uwo.ca" }
+]
+
+license = { text = "MIT" }
+requires-python = ">=3.6"
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Astronomy"
+]
+
+dependencies = [
+  "matplotlib>=3.7.2",
+  "numpy>=1.24.4",
+  "dearpygui>=1.9.1",
+  "dearpygui_ext>=0.9.5",
+  "your>=0.6.7",
+  "pandas>=2.1.0",
+  "tqdm>=4.65.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/mef51/frbgui"
+
+[project.scripts]
+frbgui = "frbgui:main"
+
+[tool.setuptools]
+py-modules = ["frbgui", "driftrate", "driftlaw", "arrivaltimes"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
