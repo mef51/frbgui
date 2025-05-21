@@ -318,6 +318,7 @@ def measureburst(
 	subtractbg=False,
 	bw_filter='data_cutoff',
 	bw_width_factor=3, # burst based filter factors are likely to help a lot with complex and blended components, and avoids having to do submasks
+	subbandslice=None,
 	snr_cutoff=3,
 	t_filter_factor=2,
 	crop=None,
@@ -392,6 +393,8 @@ def measureburst(
 			For bursts with lots of frequency structure this may be inadequate,
 			and this parameter can be used to override the filter width. It's recommended to try downsampling first. Note that a
 			high ``bw_width_factor`` such as 10-15 likely indicates the bandwidth measurement is being understimated.
+		subbandslice (slice, optional): Slice to use when sampling the subband noise standard deviation.
+			Overrides ``NOISE_WIDTH_FACTOR``. Use python's slice function. E.g. ``slice(0,25)``
 		snr_cutoff (int, optional): The S/N cutoff to use when ``bw_filter='data_cutoff'`` or ``bw_filter='model_cutoff'``.
 			By default equals 3.
 		t_filter_factor (int, optional): By default 2σ of the burst duration is applied as a temporal filter.
@@ -754,7 +757,6 @@ def measureburst(
 			subpktime = xosi - edge
 
 		# Fit 1d gauss to burst spectrum
-		fo = sum(freqs*subband)/sum(subband) # this is an estimate of center_f
 		if load_solutions:
 			subband_popt = subbandpopts[0]
 			subband_perr = subbandperrs[0]
@@ -769,9 +771,17 @@ def measureburst(
 				freqs_fit   = freqs[(subband < bandmask_thresi).nonzero()]
 			else:
 				subband_fit, freqs_fit = subband, freqs
+
 			try:
-				subbandsigma = np.std(subband[:len(subband)//NOISE_WIDTH_FACTOR]) # not always a great estimate
-				# print(f"{subbandsigma = :.3f}")
+				if subbandslice:
+					subbandsigma = np.std(subband[subbandslice])
+				else:
+					subbandsigma = np.std(subband[:len(subband)//NOISE_WIDTH_FACTOR]) # not always a great estimate
+				# printd(f"{subbandsigma = :.3f}")
+				# [print(f, r) for f, r in zip(freqs_fit, subband_fit)]
+				freqs_fit = freqs_fit[subband_fit.nonzero()]
+				subband_fit = subband_fit[subband_fit.nonzero()]
+				fo = sum(freqs_fit*subband_fit)/sum(subband_fit) # this is an estimate of center_f
 				subband_popt, subband_pcov = scipy.optimize.curve_fit(
 					gauss_model,
 					freqs_fit,
@@ -785,6 +795,7 @@ def measureburst(
 				)
 
 				residuals = (subband_fit - gauss_model(freqs_fit, *subband_popt))/subbandsigma
+				# [print(f"{f}\t{r}\t{m}") for f, r, m in zip(freqs_fit, residuals, gauss_model(freqs_fit, *subband_popt))]
 				chisq = np.sum((residuals) ** 2)
 				subband_redchisq = chisq / (len(subband_fit)- len(subband_popt))
 				subband_perr = np.sqrt(np.diag(subband_pcov))
@@ -907,7 +918,7 @@ def measureburst(
 					freqs_bin0 + res_freq*wfall.shape[0]
 				]
 			)
-			subcolors = [(1, 1, 1, alpha) for alpha in np.clip(subdf['amp'], 0, 1)]
+			subcolors = [(1, 1, 1, alpha) for alpha in subdf['amp']/subdf['amp'].max()]
 			subaxs['W'].scatter(
 				(subdf[tpoint]),
 				(subdf['freqs']),
@@ -1053,7 +1064,7 @@ def measureburst(
 			edgecolors=subdf['color'],
 			marker='o',
 			s=25,
-			alpha=np.clip(subdf['amp'], 0, 1)
+			alpha=subdf['amp']/subdf['amp'].max()
 		)
 	ax_wfall.set_xlabel("Time (ms)")
 	ax_wfall.set_ylabel("Frequency (MHz)")
@@ -1344,7 +1355,7 @@ def measureburst(
 		if event.button == 3: # Right click: select mask channel
 			ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
 			xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
-			print(f"freq chan: {ychan} time chan: {xchan}")
+			print(f"freq chan: {ychan} time chan: {xchan} amp: {wfall[ychan,xchan]:.4f}")
 			# print(f"freq chan: {ychan} time chan: {xchan} {np.mean(wfall[ychan//downfactors[0]]) = }")
 	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
@@ -1578,7 +1589,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 			edgecolors=arrtimesdf['color'],
 			marker='o',
 			s=25,
-			alpha=np.clip(arrtimesdf['amp'], 0, 1),
+			alpha=arrtimesdf['amp']/arrtimesdf['amp'].max(),
 			label=f"$dt/d\\nu =$ {scilabel(arrdf.iloc[0]['dtdnu (ms/MHz)'], arrdf.iloc[0]['dtdnu_err'])} ms/MHz"
 		)
 
@@ -1784,9 +1795,9 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 	# axs[0].legend(handlelength=0)
 	try:
 		axs[0].legend(handlelength=0, fontsize='small', loc=4)
+		axs[1].legend(ncols=1, handlelength=0, fontsize='small', loc=4)
 	except IndexError as e:
 		print("error: weird legend bug")
-	axs[1].legend(ncols=1, handlelength=0, fontsize='small', loc=4)
 
 	results_allmethods = list(arrdf.reset_index().iloc[0]) + precalc_results + model_results
 
