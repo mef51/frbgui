@@ -10,9 +10,10 @@ import pandas as pd
 # from sklearn.mixture import GaussianMixture
 import driftrate
 from driftrate import scilabel, subburst_suffixes
+import DM_phase
 
 # Based on https://github.com/mef51/subdriftlaw/blob/master/ArrivalTimes.ipynb
-
+plt.rcParams['toolbar'] = 'toolbar2'
 """
 When fitting rows, noise is sampled over a fraction of the data, from the start.
 i.e. `data_sigma = np.std(data[0:len(data)//NOISE_WIDTH_FACTOR])`
@@ -312,7 +313,9 @@ def measureburst(
 	sigmas=None,
 	fix_xos=False,
 	tolms=0.01,
+	band_int_width_fac=1,
 	targetDM=None,
+	recalculateDM=False,
 	correctTimes=False,
 	downfactors=(1,1),
 	subtractbg=False,
@@ -374,8 +377,11 @@ def measureburst(
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
 		tolms (float, optional): Tolerance in milliseconds to use when ``fix_xos`` is True. Default is 0.01 ms.
+		band_int_width_fac (int, optional): When integrating the waterfall to determine the spectrum,
+			the factor of σ_t,1D to use that determines the on-pulse region. Default 1. Maximum 4.
 		targetDM (float, optional): the DM (pc/cm^3) to perform the measurement at.
 			Default is to perform the measurement at the DM of the npz file.
+		recalculateDM (bool, optional): Recalculate the burst DM using ``DM_phase`` before measurement.
 		correctTimes (bool, optional): Shift xos and cuts to account for dispersive shift
 			when applying a targetDM other than the burst DM. Note that this shift will occur even when ``fix_xos`` is True.
 		downfactors (tuple[int], optional): 2-tuple of factors to downsample by in frequency and time (respectively)
@@ -400,7 +406,8 @@ def measureburst(
 		t_filter_factor (int, optional): By default 2σ of the burst duration is applied as a temporal filter.
 		outdir (str, optional): string of output folder for figures. Defaults to ''.
 		crop (tuple[int], optional): pair of indices to crop the waterfall in time
-		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling
+		masks (List[int], optional): frequency indices to mask. Masks are applied before downsampling.
+			Use ``[range(y0, y1)]`` to mask all channels from y0 to y1.
 		submasks (tuple[List[int]], optional): tuple of length `xos` of lists of indices to mask on a subcomponent's waterfall.
 			Note that contrary to ``masks``, these are applied after downsampling.
 			Indices are scaled from the original size to the downsampled size and so can cover more than one channel.
@@ -502,10 +509,15 @@ def measureburst(
 		presubtractbg = subtractbg[0]
 		subtractbg = subtractbg[1]
 
+	if not (0 < band_int_width_fac <= 4):
+		band_int_width_fac = 1
+		print(f"Warn: {band_int_width_fac =} must be between 0 and 4. Setting to default of 1")
+
 	results = []
 	bname = filename.split('/')[-1].split('.npz')[0]
 	data = np.load(filename, allow_pickle=True)
 	wfall = np.copy(data['wfall'])
+	print(f"Info: Measuring burst {bname} with {len(xos) if len(xos) != 0 else 1} components...")
 
 	if targetDM:
 		print(f"Info: Dedispersing from {data['DM']} to {targetDM} pc/cm3")
@@ -519,6 +531,43 @@ def measureburst(
 		)
 	else:
 		targetDM = data['DM']
+
+	## Vary DM by small amounts and calculate optimal using DM_phase
+	if recalculateDM:
+		step = 0.1
+		ddms = np.arange(-40, 40, step=step)
+		# step = 0.01 # for very short bursts
+		# ddms = np.arange(-10, 10, step=step)
+		print(
+			f"Info: Searching for optimal DM in steps of "
+			f"{step} pc/cm3 and range of {targetDM} +/- {ddms[-1]:.0f} pc/cm3..."
+		)
+		ddmopt, ddmopt_std = DM_phase.get_dm(
+			wfall,
+			ddms,
+			data['duration'] / data['wfall'].shape[1], # s
+			np.linspace(min(data['dfs']), max(data['dfs']), num=wfall.shape[0]),
+			manual_bandwidth=False,
+			fname=f'measurements/dmplots/{bname}',
+			no_plots=False,
+			blackonwhite=False,
+			fformat='.pdf',
+		)
+		print(f"Info: Found {ddmopt = :.3f} +/- {ddmopt_std:.3f}")
+		print(f"Info: {targetDM + ddmopt = :.3f} +/- {ddmopt_std:.3f}")
+		targetDM = targetDM + ddmopt
+		print(f"Info: Dedispersing from {data['DM']} to {targetDM} pc/cm3")
+		ddm = targetDM - data['DM']
+		wfall = driftrate.dedisperse(
+			wfall,
+			ddm,
+			min(data['dfs']),
+			data['bandwidth']/wfall.shape[0],
+			1000*data['duration']/wfall.shape[1]
+		)
+		plt.close()
+
+	###
 
 	for mask in masks:
 		wfall[mask] = 0
@@ -538,7 +587,10 @@ def measureburst(
 	res_freq    = downfactors[0] * data['bandwidth'] / data['wfall'].shape[0] # MHz
 	res_time_ms = downfactors[1] * 1000*data['duration'] / data['wfall'].shape[1] # ms
 	duration    = wfall.shape[1] * res_time_ms # duration of potentially cropped waterfall
-	print(f"Info: {res_freq = :.3f} MHz {res_time_ms = :.5f} ms {min(data['dfs']) = } -- {max(data['dfs']) = } MHz")
+	print(
+		f"Info: {res_freq = :.3f} MHz {res_time_ms = :.5f} ms\n"
+		f"Info: {min(data['dfs']) = :.2f} -- {max(data['dfs']) = :.2f} MHz"
+	)
 
 	if targetDM and correctTimes:
 		ddm = targetDM - data['DM']
@@ -675,36 +727,37 @@ def measureburst(
 		# Slicing syntax: a[start:stop]  means items start through stop-1
 		# Therefore When slicing we add 1 to the end to include the ending channel.
 		ddof = 0 # Bessel's correction = 1
-		if xoi-s1 < 0: # left edge
+		sw = band_int_width_fac*s1 # integration width
+		if xoi-sw < 0: # left edge
 			print("Info: Spectral filter noise level sampled from end of waterfall.")
-			subband = wfall[..., :int(xoi+s1)+1].mean(axis=1)
+			subband = wfall[..., :int(xoi+sw)+1].mean(axis=1)
 			noisesmpls.append(
-				wfall[..., -int(xoi+s1):].std(axis=1, ddof=ddof)
+				wfall[..., -int(xoi+sw):].std(axis=1, ddof=ddof)
 			)
-			noise_edges.append((len(wfall)-int(xoi+s1), len(wfall)-1))
-		elif xoi-s1 > wfall.shape[1]:
+			noise_edges.append((len(wfall)-int(xoi+sw), len(wfall)-1))
+		elif xoi-sw > wfall.shape[1]:
 			subband = wfall.mean(axis=1) # probably bad fit, take it all as a fallback
 			noisesmpls.append(wfall.std(axis=1, ddof=ddof))
 			noise_edges.append((0, len(wfall)-1))
 			if bw_filter != 'model_width':
 				print("Warning: Noise sample taken from whole waterfall. Spectral filter may be overly aggressive.")
-		else: # Compute spectrum by summing only 1 sigma from burst peak
-			if int(xoi-s1) <= int(xoi+s1)-int(xoi-s1):
+		else: # Compute spectrum by summing only band_int_width_fac*sigma from burst peak
+			if int(xoi-sw) <= int(xoi+sw)-int(xoi-sw):
 				print("Warning: Noise sample overlaps with pulse region.")
 
-			subband = wfall[..., int(xoi-s1):int(xoi+s1)+1].mean(axis=1)
+			subband = wfall[..., int(xoi-sw):int(xoi+sw)+1].mean(axis=1)
 			noisesmpls.append(
-				wfall[..., :int(xoi+s1)-int(xoi-s1)+1].std(axis=1, ddof=ddof)
+				wfall[..., :int(xoi+sw)-int(xoi-sw)+1].std(axis=1, ddof=ddof)
 			)
-			noise_edges.append((0, int(xoi+s1)-int(xoi-s1)+1))
+			noise_edges.append((0, int(xoi+sw)-int(xoi-sw)+1))
 			printd(
-				f"{int(xoi-s1) = }, {int(xoi+s1) = }",
-				wfall[..., :int(xoi+s1)-int(xoi-s1)+1].shape,
-				wfall[..., int(xoi-s1):int(xoi+s1)+1].shape,
-				int(xoi-s1),
-				int(xoi+s1)
+				f"{int(xoi-sw) = }, {int(xoi+sw) = }",
+				wfall[..., :int(xoi+sw)-int(xoi-sw)+1].shape,
+				wfall[..., int(xoi-sw):int(xoi+sw)+1].shape,
+				int(xoi-sw),
+				int(xoi+sw)
 			)
-			if wfall[..., :int(xoi+s1)-int(xoi-s1)+1].shape != wfall[..., int(xoi-s1):int(xoi+s1)+1].shape:
+			if wfall[..., :int(xoi+sw)-int(xoi-sw)+1].shape != wfall[..., int(xoi-sw):int(xoi+sw)+1].shape:
 				print("Warning!!!: Subband and noise sample regions differ in size. Check xos.")
 
 		bandpass += subband
@@ -840,7 +893,7 @@ def measureburst(
 				subband_popt, subband_perr = [0, 1, 1], [0, 0, 0]
 				subband_redchisq = 0
 
-		bwidth, bwidth_err = subband_popt[2], subband_perr[2] # sigma of spetrum fit
+		bwidth, bwidth_err = abs(subband_popt[2]), subband_perr[2] # sigma of spectrum fit
 		pkfreq, pkfreq_err = subband_popt[1], subband_perr[1] # this is fitted center_f and center_f_err
 
 		## Apply time and spectral filters to points
@@ -857,6 +910,7 @@ def measureburst(
 			subdf = subdf[ # freqs is the implied axis
 				subband/noisesmpl > snr_cutoff
 			]
+			printd(f"Debug: after spectral data filter {len(subdf) = }")
 		elif bw_filter == 'model_cutoff' and bwidth != 1: # there must be a fit
 			model = gauss_model(subdf['freqs'], *subband_popt)
 			subdf = subdf[
@@ -869,12 +923,15 @@ def measureburst(
 			]
 
 		subdf = subdf[(subdf.amp > 0)]
+		printd(f"Debug: after fit amplitude filter {len(subdf) = }")
 		subdf = subdf[subdf.tstart_err/subdf.tstart < 10]
+		printd(f"Debug: after tstart_err filter {len(subdf) = }")
 		subdf = subdf[ # time window filter
 			(subpktime-t_filter_factor*sigma < subdf[tpoint]) &
 			(subdf[tpoint] < subpktime+t_filter_factor*sigma) # full width
 			# (subdf[tpoint] < subpktime) # arrival time must be before pktime, just playing
 		]
+		printd(f"Debug: after time window filter {len(subdf) = }")
 		printd(f"Debug: post-filters {len(subdf) = }")
 
 		## Measure dt/dnu
@@ -894,8 +951,6 @@ def measureburst(
 
 			dtdnu, dtdnu_err = popt[0], perr[0]
 			t_b, tb_err = popt[1], perr[1]
-
-			# print(f"{dtdnu = :.5e} +/- {dtdnu_err:.5e} ms/MHz")
 
 			print(f"{dtdnu = :.5e} +/- {dtdnu_err:.5e} ms/MHz {dtdnu_redchisq = :.1f}")
 			# print(f"{dtdnu2 = :.5e} +/- {dtdnu_err2:.5e} ms/MHz")
@@ -943,8 +998,10 @@ def measureburst(
 				gauss_model(freqs, *subband_popt),
 				freqs
 			)
+			subaxs['B'].plot(noisesmpl,freqs)
 			if bandmask_thresi:
 				plt.axvline(x=bandmask_thresi, c='r', ls='--')
+			plt.title(rowname)
 			plt.show()
 			plt.close()
 		subbandmodels.append(gauss_model(freqs, *subband_popt))
@@ -1047,8 +1104,9 @@ def measureburst(
 		vmax=np.quantile(wfall, 0.999),
 		# vmin=5, # hewitt microshots
 	)
+	dmlbl = f"DM = {targetDM:.3f} pc/cm$^3$" if not recalculateDM else f"DM = {targetDM:.3f} +/- {ddmopt_std:.3f} pc/cm$^3$"
 	ax_wfall.annotate(
-		f"DM = {targetDM:.3f} pc/cm$^3$",
+		dmlbl,
 		xy=(0.05, 0.925),
 		xycoords='axes fraction',
 		color='white',
@@ -1160,6 +1218,7 @@ def measureburst(
 				(xoi-pktime, ax_tseries.get_ylim()[0] + sp*(np.max(tseries)*0.075)),
 			)
 		sp += 1
+	ax_tseries.set_ylim(ax_tseries.get_ylim()[0], np.max(tseries)*1.1)
 
 	ax_tseries.plot(
 		times_ms-pktime,
@@ -1295,6 +1354,11 @@ def measureburst(
 		color='#888888'
 	)
 	ax_slope.plot(freqs, pdtdnu*freqs+pt_b, 'k--')
+
+	# Plot residual dispersion reference curve
+	# delt = driftrate.a_dm * 2 * (1/freqs**2 - 1/np.max(freqs)**2)
+	# ax_slope.plot(freqs, delt, label=ddm)
+
 	ax_slope.annotate(
 		f"{psfx}. $dt/d\\nu =$ {scilabel(pdtdnu, pdtdnu_err)} ms/MHz"
 		f"\n$\\chi^2_{{\\text{{red}}}} =$ {pdtdnu_redchisq:.2f}",
@@ -1370,9 +1434,9 @@ def measureburst(
 		# print(x, y, dx, dy)
 	if save:
 		if outdir == '' or outdir[-1] == '/':
-			outname = f"{outdir}{bname}{outfmt}"
+			outname = f"{outdir}{bname}_DM{targetDM:.3f}{outfmt}"
 		else:
-			outname = f"{outdir}/{bname}{outfmt}"
+			outname = f"{outdir}/{bname}_DM{targetDM:.3f}{outfmt}"
 		fig.savefig(outname)
 		print(f"Info: Saved {outname}.")
 
@@ -1504,7 +1568,14 @@ if __name__ == 'n__main__':
 	)
 
 
-def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
+def measure_allmethods(
+	filename,
+	show=True,
+	p0tw=0.01,
+	p0bw=100,
+	outdir='measurements/collected/',
+	**kwargs
+	):
 	"""
 	Collect spectro-temporal measurements of a burst using multiple techniques.
 	Utility for comparing the result of spectro-temporal measurements of a burst obtained from the following
@@ -1626,7 +1697,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		res_freq,
 		res_time_ms,
 		freqs_bin0,
-		p0=[],
+		p0=[1, 0, 0, p0tw, p0bw, 0],
 		verbose=False,
 		plot=False
 	)
@@ -1679,7 +1750,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 		res_freq,
 		res_time_ms,
 		freqs_bin0,
-		p0=[],
+		p0=[1, 0, 0, p0tw, p0bw, 0, 0],
 		verbose=False,
 		plot=False,
 		usefloor=True
@@ -1803,7 +1874,7 @@ def measure_allmethods(filename, show=True, p0tw=0.01, p0bw=100, **kwargs):
 
 	plt.tight_layout()
 	if show: plt.show()
-	plt.savefig(f"measurements/collected/{bname}")
+	plt.savefig(f"{outdir}{bname}")
 	plt.close()
 	return results_allmethods
 

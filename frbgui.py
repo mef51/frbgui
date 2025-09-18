@@ -1230,7 +1230,8 @@ def savedm_cb(sender, data):
 			print(f'updated DM of {npz} to {newDM}')
 			dpg.configure_item('SaveDMButton', enabled=False)
 
-def frbgui(filefilter=gdata['globfilter'],
+def frbgui(
+		filefilter=gdata['globfilter'],
 		datadir='',
 		maskfile=None,
 		dmrange=None,

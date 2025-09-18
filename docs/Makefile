@@ -1,6 +1,9 @@
 # Minimal makefile for Sphinx documentation
 #
 
+# Manually on command line:
+# python -m sphinx -T -W --keep-going -b html -d _build/doctrees -D language=en . docs/_build/html
+
 # You can set these variables from the command line, and also
 # from the environment for the first two.
 SPHINXOPTS    ?=
@@ -18,3 +21,5 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+
+

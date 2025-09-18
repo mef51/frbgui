@@ -898,11 +898,18 @@ def scilabel(num, err, prec=1):
 	"""
 	sign = '' if num > 0 else '-'
 	num = abs(num)
-	return (
-		f'({sign}{num/(10**np.floor(np.log10(num))):.{prec}f}'
-		f'$\\pm${err/(10**np.floor(np.log10(num))):.{prec}f})'
-		f'$\\times 10^{{{np.floor(np.log10(num)):.0f}}}$'
-	)
+	exp = np.floor(np.log10(num))
+	if exp == 0:
+		return (
+			f'{sign}{num/(10**exp):.{prec}f}'
+			f'$\\pm${err/(10**exp):.{prec}f}'
+		)
+	else:
+		return (
+			f'({sign}{num/(10**exp):.{prec}f}'
+			f'$\\pm${err/(10**exp):.{prec}f})'
+			f'$\\times 10^{{{exp:.0f}}}$'
+		)
 
 def plotResults(resultsfile, datafiles=[], masks=None, figsize=(14, 16), nrows=6, ncols=4, clip=1,
 				snrLines=False, show=False):
