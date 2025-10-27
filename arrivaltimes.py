@@ -312,6 +312,7 @@ def measureburst(
 	cuts=[],
 	sigmas=None,
 	fix_xos=False,
+	use_average_chan_duration=False,
 	tolms=0.01,
 	band_int_width_fac=1,
 	targetDM=None,
@@ -376,6 +377,9 @@ def measureburst(
 		fix_xos (bool, optional): Default False. Whether or not to fix the passed ``xos`` when fitting the 1d model.
 			Useful when bursts are blended and one can visually distinguish where a burst should be from the waterfall
 			even if it appears completely absorbed in the integrated time series.
+		use_average_chan_duration (bool, optional): Default False. If True, the duration of the component
+			will be the average of pulse widths in channels with tagged arrival times instead of the
+			1D integrated time-series.
 		tolms (float, optional): Tolerance in milliseconds to use when ``fix_xos`` is True. Default is 0.01 ms.
 		band_int_width_fac (int, optional): When integrating the waterfall to determine the spectrum,
 			the factor of σ_t,1D to use that determines the on-pulse region. Default 1. Maximum 4.
@@ -1032,6 +1036,8 @@ def measureburst(
 		# print(f"{rowname} number of arrival times: {len(subdf) = }")
 		print(f"{bwidth = :.3f} +/- {bwidth_err:.3f} MHz")
 
+		if use_average_chan_duration:
+			sigma, sigma_err = subdf['sigma'].mean(), subdf['sigma_err'].mean()
 		results.append([ # see `results_columns`
 			rowname,	      # 'name',
 			targetDM,	      # 'DM',
@@ -1271,7 +1277,7 @@ def measureburst(
 			freqs,
 			'k--',
 			alpha=0.5,
-			zorder=-1,
+			zorder=1,
 		)
 
 	for bandmask_thresi, subband in zip(bandmask_thres, subbands):
@@ -1417,9 +1423,15 @@ def measureburst(
 				[ax_tseries.axvline(x=t-pktime, ls='-.', c='k') for t in cuts]
 				fig.canvas.draw()
 		if event.button == 3: # Right click: select mask channel
+			# Transform back to un-downsampled waterfall
 			ychan = int(downfactors[0]*(y - freqs_bin0)/res_freq)
 			xchan = int(downfactors[1]*(x+pktime)/res_time_ms)
-			print(f"freq chan: {ychan} time chan: {xchan} amp: {wfall[ychan,xchan]:.4f}")
+			if xchan >= 0 and ychan >= 0:
+				if xchan < wfall.shape[1] and ychan < wfall.shape[0]:
+					print(f"freq chan: {ychan} time chan: {xchan} amp: {wfall[ychan,xchan]:.4f}")
+				else: # I dunno some kind of bug here
+					print(f"freq chan: {ychan} time chan: {xchan}")
+
 			# print(f"freq chan: {ychan} time chan: {xchan} {np.mean(wfall[ychan//downfactors[0]]) = }")
 	cid = fig.canvas.mpl_connect('button_press_event', printinfo)
 
@@ -1591,7 +1603,7 @@ def measure_allmethods(
 	"""
 	model_results = []
 	precalc_results = []
-
+	print(f"{kwargs =}")
 	(
 		wfall,
 		freqs,
@@ -1647,7 +1659,7 @@ def measure_allmethods(
 		data=arr_result,
 		columns=results_columns
 	).set_index('name')
-	# print(arrdf[['dtdnu (ms/MHz)']], 'ms/MHz', arrdf[['dtdnu_err']], 'ms/MHz')
+	print(arrdf[['dtdnu (ms/MHz)']], 'ms/MHz', arrdf[['dtdnu_err']], 'ms/MHz')
 
 	print("Arrival Times method:")
 	print(f"\t{arrdf.iloc[0]['dtdnu (ms/MHz)']:.4e} +/- {arrdf.iloc[0]['dtdnu_err']:.4e} ms/MHz")
