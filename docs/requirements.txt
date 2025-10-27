@@ -7,3 +7,4 @@ typing-extensions
 numpy
 your==0.6.7
 astropy
+DM_phase

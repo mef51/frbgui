@@ -18,7 +18,7 @@ setuptools.setup(
 	install_requires=[
 		'matplotlib>=3.7.2',
 		'numpy>=1.24.4',
-		'dearpygui==1.9.1',
+		'dearpygui>=1.9.1',
 		'dearpygui_ext>=0.9.5',
 		'your>=0.6.7',
 		'pandas>=2.1.0',
