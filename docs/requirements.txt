@@ -7,4 +7,4 @@ typing-extensions
 numpy
 your==0.6.7
 astropy
-DM_phase @ https://github.com/danielemichilli/DM_phase/archive/b7cf5fd6143635f3a926c53147b90215c9e32dd0.zip
+DM_phase @ https://github.com/mef51/DM_phase/archive/5929e6f1c99f40ff4667862a0af3a47f2e38c254.zip
