@@ -1,0 +1,132 @@
+name: Build and Push to CANFAR Harbor
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip pytest pytest-cov
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt || true
+          fi
+          python -m pip install numpy
+          if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
+            python -m pip install -e .
+          fi
+
+      - name: Generate test fixtures (optional)
+        env:
+          COMET_TEST_DATA_DIR: tests/data
+          COMET_TEST_DATA_SOURCE_DIR: ${{ secrets.COMET_TEST_DATA_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -f tests/_comet_generate_fixtures.py ]; then
+            python tests/_comet_generate_fixtures.py
+          else
+            echo "tests/_comet_generate_fixtures.py not found; skipping"
+          fi
+
+      - name: Run pytest
+        env:
+          COMET_TEST_DATA_DIR: tests/data
+          COMET_TEST_DATA_SOURCE_DIR: ${{ secrets.COMET_TEST_DATA_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -d tests ]; then
+            COV_ARGS=""
+            if [ -d src ]; then
+              COV_ARGS="--cov=src"
+            else
+              for candidate in *.py */__init__.py; do
+                [ -e "$candidate" ] || continue
+                case "$candidate" in tests/*|test/*|setup.py) continue ;; esac
+                if [ -f "$candidate" ]; then
+                  module="${candidate%.py}"
+                else
+                  module="${candidate%/__init__.py}"
+                fi
+                [ -n "$module" ] || continue
+                COV_ARGS="$COV_ARGS --cov=$module"
+              done
+            fi
+            if [ -z "$COV_ARGS" ]; then
+              COV_ARGS="--cov=. --cov-omit=tests/*,test/*"
+            fi
+            pytest tests -q $COV_ARGS --cov-report=term-missing --cov-fail-under=75
+          else
+            echo "tests/ not found; skipping"
+          fi
+
+  build_and_push:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required inputs
+        env:
+          HARBOR_URL: ${{ secrets.HARBOR_URL }}
+          HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_REPOSITORY }}
+          HARBOR_IMAGE_TAG: ${{ secrets.HARBOR_IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for k in HARBOR_URL HARBOR_PROJECT HARBOR_USERNAME HARBOR_PASSWORD HARBOR_REPOSITORY HARBOR_IMAGE_TAG; do
+            if [ -z "$(printenv "$k")" ]; then
+              echo "ERROR: Missing required secret $k" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Log in to Harbor
+        env:
+          HARBOR_URL: ${{ secrets.HARBOR_URL }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          echo "$HARBOR_PASSWORD" | docker login "$HARBOR_URL" -u "$HARBOR_USERNAME" --password-stdin
+
+      - name: Build image
+        env:
+          HARBOR_URL: ${{ secrets.HARBOR_URL }}
+          HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_REPOSITORY }}
+          HARBOR_IMAGE_TAG: ${{ secrets.HARBOR_IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker build -t "$HARBOR_URL/$HARBOR_PROJECT/$HARBOR_REPOSITORY:$HARBOR_IMAGE_TAG" .
+
+      - name: Push image
+        env:
+          HARBOR_URL: ${{ secrets.HARBOR_URL }}
+          HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_REPOSITORY }}
+          HARBOR_IMAGE_TAG: ${{ secrets.HARBOR_IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker push "$HARBOR_URL/$HARBOR_PROJECT/$HARBOR_REPOSITORY:$HARBOR_IMAGE_TAG"
