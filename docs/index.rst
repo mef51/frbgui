@@ -26,6 +26,7 @@ Please visit :ref:`Overview and Installation <overview>` to get started.
 
 	tutorials/tut-preparing
 	tutorials/tut-measuring
+	tutorials/tut-arrtimes
 
 .. toctree::
 	:maxdepth: 2

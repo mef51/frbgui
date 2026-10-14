@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'FRBGui'
-copyright = '2023, Mohammed A. Chamma'
+copyright = '2023-2026, Mohammed A. Chamma'
 author = 'Mohammed A. Chamma'
 version = '0.12.0'
 

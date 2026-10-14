@@ -58,3 +58,4 @@ buildnotes.md
 docs/_build/
 # docs/_static/
 docs/_templates/
+.venv/*

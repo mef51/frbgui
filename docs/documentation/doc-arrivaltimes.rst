@@ -1,3 +1,5 @@
+.. _docarrtimes:
+
 Arrival Times Measurements
 ==========================
 
